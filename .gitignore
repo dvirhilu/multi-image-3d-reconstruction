@@ -1,0 +1,14 @@
+*.pyc
+
+# # do not push logs to repo
+# log/
+
+# do not push vscode directory to repo
+.vscode/
+
+# do not push environment to repo, just requirements.txt
+env/*
+!env/requirements.txt
+
+# # doxygen directory will give a lot of merge issues. Ignore from repo and just generate locally for now
+# docs/doxygen/
