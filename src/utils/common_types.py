@@ -53,9 +53,8 @@ class Face3D:
     def to_2D(self, plane_normal):
         return [math_utils.proj_2_plane(vertex, plane_normal) for vertex in self.vertices]
 
-    def set_render_colours(self, cfill, cline = None):
+    def set_render_colours(self, cfill):
         self.cfill = cfill
-        self.cline = cline
 
     def rotate(self, angle, rot_axis):
         vertices = [math_utils.rotate_vec(vertex, angle, rot_axis)
