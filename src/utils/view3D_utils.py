@@ -92,8 +92,23 @@ def is_mouse_down(event, mouse_down):
     else:
         return mouse_down
 
-def should_obj_rotate(event, mouse_down):
+def mouse_rotation_requested(event, mouse_down):
     return event.type == pygame.MOUSEMOTION and mouse_down
+
+def auto_rotation_requested(event, auto_rotating):
+    if (event.type == KEYDOWN):
+        # toggle auto_rotating when r is pressed
+        if event.key == pygame.K_r:
+            return not auto_rotating
+
+    return auto_rotating
+
+def get_auto_rotation_axis(event, rotation_direction):
+    if (event.type == KEYDOWN):
+        if event.key == pygame.K_s:
+            return [np.random.uniform(-1,1) for i in range(3)]
+
+    return rotation_direction
 
 def execute_mouse_controlled_rotation(face_list, x, y, x_prev, y_prev):
     # mouse coordinates increase y in downward direction
@@ -104,10 +119,54 @@ def execute_mouse_controlled_rotation(face_list, x, y, x_prev, y_prev):
     rotation_angle = 0.3*math_utils.norm(displacement_vec)
     
     rotate_view(face_list, rotation_angle, *rotation_axis)
-        
 
-def draw_octahedron(windowsize=(700,700), gl_mode=GL_TRIANGLES, rotate=False, 
-                    use_opengl=False, rotations_per_s = 0.1, rotation_axis=(0,0,1)):
+def execute_auto_rotation(face_list, rotation_axis, time):
+    degrees_per_ms = 36e-3
+    rotate_view(face_list, time*degrees_per_ms, *rotation_axis)
+
+def view_object_interactively(face_list, gl_mode=GL_TRIANGLES, windowsize=(700,700), cmap=blue_cmap):
+    # set window and graphics related parameters
+    window = init_window(windowsize=windowsize)
+    set_opengl_params()
+    clock = pygame.time.Clock()
+
+    # parameters for mouse controlled rotation
+    mouse_down = False
+    pos = pygame.mouse.get_pos()
+    prev_pos = pygame.mouse.get_pos()
+
+    # parameters for automatic rotation
+    auto_rotation_axis = [np.random.uniform(-1,1) for i in range(3)]
+    auto_rotate = False
+
+    while True:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                exit()
+
+            # handle mouse controlled rotation
+            mouse_down = is_mouse_down(event, mouse_down)
+            rotate_obj = mouse_rotation_requested(event, mouse_down)
+            prev_pos = pos[:]
+            pos = pygame.mouse.get_pos()
+
+            if (rotate_obj):
+                execute_mouse_controlled_rotation(face_list, *pos, *prev_pos)
+
+            # # handle auto-rotation
+            # auto_rotate = auto_rotation_requested(event, auto_rotate)
+            # time = clock.tick()
+            # auto_rotation_axis = get_auto_rotation_axis(event, auto_rotation_axis)
+
+            # if (auto_rotate):
+            #     execute_auto_rotation(face_list, auto_rotation_axis, time)
+        
+        update_screen(face_list, cmap=cmap, gl_mode=gl_mode)
+        print(clock.get_fps())
+
+
+def generate_octahedron():
     octahedron = [
         Face3D((1,0,0), (0,1,0), (0,0,1)),
         Face3D((1,0,0), (0,0,-1), (0,1,0)),
@@ -119,40 +178,9 @@ def draw_octahedron(windowsize=(700,700), gl_mode=GL_TRIANGLES, rotate=False,
         Face3D((-1,0,0), (0,0,-1), (0,-1,0)),
     ]
 
-    degrees_per_s = 360*rotations_per_s
-    degrees_per_ms = degrees_per_s/1e3
+    return octahedron
 
-    window = init_window(windowsize=windowsize)
-    set_opengl_params()
-    clock = pygame.time.Clock()
-
-    mouse_down = False
-    pos = pygame.mouse.get_pos()
-    prev_pos = pygame.mouse.get_pos()
-
-    while True:
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                pygame.quit()
-                exit()
-
-            mouse_down = is_mouse_down(event, mouse_down)
-            rotate_obj = should_obj_rotate(event, mouse_down)
-            prev_pos = pos[:]
-            pos = pygame.mouse.get_pos()
-
-            if (rotate_obj):
-                execute_mouse_controlled_rotation(octahedron, *pos, *prev_pos)
-                    
-        time = clock.tick()
-        
-        if rotate:
-            rotate_view(octahedron, time*degrees_per_ms, *rotation_axis, use_opengl=use_opengl)
-        
-        update_screen(octahedron, cmap=blue_cmap, gl_mode=gl_mode)
-
-def draw_cube(windowsize=(700,700), gl_mode=GL_QUADS, rotate=False, 
-                    use_opengl=False, rotations_per_s = 5, rotation_axis=(0,0,1)):
+def generate_cube():
     cube = [
         Face3D((-1,-1,1), (1,-1,1), (1,1,1), (-1,1,1)),
         Face3D((-1,-1,-1), (-1,1,-1), (1,1,-1), (1,-1,-1)),
@@ -162,22 +190,4 @@ def draw_cube(windowsize=(700,700), gl_mode=GL_QUADS, rotate=False,
         Face3D((-1,-1,-1), (1,-1,-1), (1,-1,1), (-1,-1,1)),
     ]
 
-    degrees_per_s = 360*rotations_per_s
-    degrees_per_ms = degrees_per_s/1e3
-
-    window = init_window(windowsize=windowsize)
-    set_opengl_params()
-    clock = pygame.time.Clock()
-
-    while True:
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                pygame.quit()
-                exit()
-                    
-        time = clock.tick()
-        
-        if rotate:
-            rotate_view(cube, time*degrees_per_ms, *rotation_axis, use_opengl=use_opengl)
-        
-        update_screen(cube, cmap=blue_cmap, gl_mode=gl_mode)
+    return cube
