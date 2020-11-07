@@ -22,14 +22,14 @@ from matplotlib.collections import PatchCollection
 from matplotlib.patches import Polygon
 from matplotlib import pyplot as plt
 import numpy as np
-import math_utils
-from common_types import *
+from utils import linalg_utils
+from utils.common_types import *
 
 blue_cmap = cm.get_cmap("Blues")
 
 def get_shade_val(face, light_dir=np.array([1,1,1])):
-    unit_normal = math_utils.unit_vect(face.normal_vector)
-    unit_light_dir = math_utils.unit_vect(light_dir)
+    unit_normal = linalg_utils.unit_vect(face.normal_vector)
+    unit_light_dir = linalg_utils.unit_vect(light_dir)
     shade_inv = np.dot(unit_normal, unit_light_dir)
 
     return 1-shade_inv
@@ -113,10 +113,10 @@ def get_auto_rotation_axis(event, rotation_direction):
 def execute_mouse_controlled_rotation(face_list, x, y, x_prev, y_prev):
     # mouse coordinates increase y in downward direction
     displacement_vec = np.array([x-x_prev, -(y-y_prev), 0])
-    if math_utils.norm(displacement_vec) == 0:
+    if linalg_utils.norm(displacement_vec) == 0:
         return
     rotation_axis = np.cross(displacement_vec, np.array([0,0,-1]))
-    rotation_angle = 0.3*math_utils.norm(displacement_vec)
+    rotation_angle = 0.3*linalg_utils.norm(displacement_vec)
     
     rotate_view(face_list, rotation_angle, *rotation_axis)
 
@@ -164,30 +164,3 @@ def view_object_interactively(face_list, gl_mode=GL_TRIANGLES, windowsize=(700,7
         
         update_screen(face_list, cmap=cmap, gl_mode=gl_mode)
         print(clock.get_fps())
-
-
-def generate_octahedron():
-    octahedron = [
-        Face3D((1,0,0), (0,1,0), (0,0,1)),
-        Face3D((1,0,0), (0,0,-1), (0,1,0)),
-        Face3D((1,0,0), (0,0,1), (0,-1,0)),
-        Face3D((1,0,0), (0,-1,0), (0,0,-1)),
-        Face3D((-1,0,0), (0,0,1), (0,1,0)),
-        Face3D((-1,0,0), (0,1,0), (0,0,-1)),
-        Face3D((-1,0,0), (0,-1,0), (0,0,1)),
-        Face3D((-1,0,0), (0,0,-1), (0,-1,0)),
-    ]
-
-    return octahedron
-
-def generate_cube():
-    cube = [
-        Face3D((-1,-1,1), (1,-1,1), (1,1,1), (-1,1,1)),
-        Face3D((-1,-1,-1), (-1,1,-1), (1,1,-1), (1,-1,-1)),
-        Face3D((1,-1,-1), (1,1,-1), (1,1,1), (1,-1,1)),
-        Face3D((-1,-1,-1), (-1,-1,1), (-1,1,1), (-1,1,-1)),
-        Face3D((-1,1,-1), (-1,1,1), (1,1,1), (1,1,-1)),
-        Face3D((-1,-1,-1), (1,-1,-1), (1,-1,1), (-1,-1,1)),
-    ]
-
-    return cube

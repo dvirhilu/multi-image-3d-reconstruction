@@ -1,6 +1,5 @@
 import numpy as np
 from numpy.linalg import norm
-import common_types
 
 ##################################
 # Coordinate System Conversions

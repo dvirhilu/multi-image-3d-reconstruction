@@ -1,6 +1,6 @@
 import numpy as np
 from enum import Enum
-import math_utils
+from utils import linalg_utils
 
 class CoordinateRepr(Enum):
     CARTESIAN = 0,
@@ -47,16 +47,16 @@ class Face3D:
                 print(vertex-self.vertices[0], self.normal_vector, np.dot(vertex-self.vertices[0], self.normal_vector))
                 raise ValueError("Verteces are not co-planar")
 
-        self.vertices_xy = [math_utils.proj_2_xy(vertex) for vertex in self.vertices]
+        self.vertices_xy = [linalg_utils.proj_2_xy(vertex) for vertex in self.vertices]
 
 
     def to_2D(self, plane_normal):
-        return [math_utils.proj_2_plane(vertex, plane_normal) for vertex in self.vertices]
+        return [linalg_utils.proj_2_plane(vertex, plane_normal) for vertex in self.vertices]
 
     def set_render_colours(self, cfill):
         self.cfill = cfill
 
     def rotate(self, angle, rot_axis):
-        vertices = [math_utils.rotate_vec(vertex, angle, rot_axis)
+        vertices = [linalg_utils.rotate_vec(vertex, angle, rot_axis)
                     for vertex in self.vertices]
         self.update(*vertices)
