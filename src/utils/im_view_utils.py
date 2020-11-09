@@ -12,9 +12,10 @@ def show_images(*images, titles = None, cmap=cm.get_cmap("Greys")):
             for i in range(len(images))
         ]
 
+    print("Plotting", rows, "rows and", cols, "columns")
+    
     f, axs = plt.subplots(rows, cols)
+    axs = axs.flatten()
     for i in range(len(images)):
         axs[i].imshow(images[i], cmap=cmap)
         axs[i].set_title(titles[i])
-
-    plt.show()

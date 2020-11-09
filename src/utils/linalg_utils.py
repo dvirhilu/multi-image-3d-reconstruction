@@ -15,6 +15,16 @@ def cart_2_cyl(x, y, z):
     phi = np.arctan2(y, x)
     return (r, phi, z)
 
+def pol_2_cart2d(r, phi):
+    x = r*np.cos(phi)
+    y = r*np.sin(phi)
+    return (x, y)
+
+def cart2d_2_pol(x, y):
+    r = np.sqrt(x**2 + y**2)
+    phi = np.arctan2(y, x)
+    return (r, phi)
+
 ##################################
 # Vector Operations
 ##################################
@@ -57,6 +67,10 @@ def rotate_vec(vec, theta, rot_axis):
         ])
 
     return np.matmul(R, vec)
+
+def get_euclidean_distance(vec1, vec2):
+    return norm(vec2 - vec1)
     
 
-    
+def get_vec_cos_angle(vec1, vec2):
+    return np.dot(vec1, vec2) / (norm(vec1)*norm(vec2))

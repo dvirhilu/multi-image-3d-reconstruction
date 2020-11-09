@@ -4,9 +4,10 @@ from imutils import rotate_bound
 from numpy.fft import fft2, ifft2, fftshift, ifftshift
 import matplotlib.pyplot as plt
 from scipy.signal import convolve2d
+from scipy.signal.windows import gaussian
 from matplotlib import cm
 from utils.im_view_utils import show_images
-from utils.linalg_utils import get_euclidean_distance, get_vec_angle, cart2d_2_pol
+from utils.linalg_utils import get_euclidean_distance, get_vec_cos_angle, cart2d_2_pol
 from functools import reduce
 
 def gaussian_filter(cutoff, rows, cols, center=True):
@@ -25,23 +26,33 @@ def gaussian_filter(cutoff, rows, cols, center=True):
 
     return H
 
-def apply_gaussian_filter(image, cutoff):
-    # transform image to frequency domain and center
-    imfft = fftshift(fft2(image))
-
-    # get image dimensions
-    rows, cols = imfft.shape
-
-    # generate gaussian filter
-    H = gaussian_filter(cutoff, rows, cols)
-
-    # apply gaussian filter in frequency domain
-    imfft_filtered = imfft * H
-
-    # show_images(logmag(H), logmag(imfft), logmag(imfft_filtered))
+def apply_gaussian_blur(image, fourier=False, sigma=3, mask_len=9, cutoff=0.25):
     
-    # transform back and output
-    return np.abs(ifft2(ifftshift(imfft_filtered)))
+    if fourier:
+        # transform image to frequency domain and center
+        imfft = fftshift(fft2(image))
+
+        # get image dimensions
+        rows, cols = imfft.shape
+
+        # generate gaussian filter
+        H = gaussian_filter(cutoff, rows, cols)
+
+        # apply gaussian filter in frequency domain
+        imfft_filtered = imfft * H
+
+        # show_images(logmag(H), logmag(imfft), logmag(imfft_filtered))
+        
+        # transform back and output
+        return np.abs(ifft2(ifftshift(imfft_filtered)))
+    else:
+        h = gaussian_mask(mask_len, sigma)
+
+        return convolve2d(image, h, 'same')
+
+def gaussian_mask(length, sigma):
+    x = gaussian(length, sigma)
+    return np.outer(x, x)
 
 def fx_mask():
     return np.array([
@@ -98,40 +109,54 @@ def apply_hessian_corner_mask(image, c):
     outimage = (lambda1 > threshold) & (lambda2 < -threshold)
 
     # output the number of corners detected
-    print(np.sum(outimage))
+    # print(np.sum(outimage))
 
     return outimage
 
-def apply_hessian_corner_mask2(image, c):
-    fxx = fxx_mask()
-    fyy = fyy_mask()
-    fxy = fxy_mask()
+def filter_corner_centrosymmetry(image, corner_mask, circular_mask_radius, cutoff_ratio):
+    I_masks = [
+        partially_averaging_circular_mask(circular_mask_radius, i*360/8, (i+1)*360/8)
+        for i in range(8)
+    ]
 
-    image_xx = convolve2d(image, fxx, mode='same')
-    image_yy = convolve2d(image, fyy, mode='same')
-    image_xy = convolve2d(image, fxy, mode='same')
+    # apply partial circular masks to find average in different sections
+    I = [
+        convolve2d(image, kernel, 'same')
+        for kernel in I_masks
+    ]
 
-    # find eigenvalues of hessian matrix
-    S = image_xx*image_yy - image_xy**2
+    # average intensity differences between areas in circular mask
+    D1 = np.abs(I[0] - I[4]) # D1 = |I1 - I5|
+    D2 = np.abs(I[2] - I[6]) # D2 = |I3 - I7|
+    D3 = np.abs(I[0] + I[4] - I[2] - I[6])/2 # D3 = |I1 + I5 - I3 - I7|/2
+    D4 = np.abs(I[1] - I[5]) # D4 = |I2 - I6|
+    D5 = np.abs(I[3] - I[7]) # D5 = |I4 - I8|
+    D6 = np.abs(I[1] + I[5] - I[3] - I[7])/2 # D6 = |I2 + I6 - I4 - I8|/2
 
-    outimage = S < 0
+    centosymmetry_criteria_1_mask = (D1 < cutoff_ratio*D3) | (D2 < cutoff_ratio*D3)
+    centosymmetry_criteria_2_mask = (D4 < cutoff_ratio*D6) | (D5 < cutoff_ratio*D6)
 
-    # output the number of corners detected
-    print(np.sum(outimage))
+    # keep corner if either centosymmetry criteria pass
+    outmask = corner_mask & (centosymmetry_criteria_1_mask|centosymmetry_criteria_2_mask)
 
-    return outimage
+    return outmask
 
-def filter_corner_centrosymmetry(image, corner_mask):
-    pass
 
 def partially_averaging_circular_mask(radius, phi_start, phi_end):
     def in_averaging_regions(i, j, radius, phi_start, phi_end):
-        r, phi = cart2d_2_pol(i-radius, j-radius)
-        phi = phi*180/np.pi
+        r, phi = cart2d_2_pol(i-radius, radius-j) # y coordinate is flipped
         inside_circle  = r <= radius
-        inside_angular_range = phi_start <= phi < phi_end
+        # account for overlap
+        if phi_end > phi_start:
+            inside_angular_range = phi_start <= phi < phi_end
+        else:
+            inside_angular_range = phi < phi_end or phi > phi_start
 
         return inside_circle and inside_angular_range
+
+    # change to radian angle between -pi and pi
+    phi_start = ((phi_start + 180)%360 - 180)*np.pi/180
+    phi_end = ((phi_end + 180)%360 - 180)*np.pi/180
 
     # insert ones in averaging slice, zeros otherwise
     mask = np.array([
@@ -146,15 +171,9 @@ def partially_averaging_circular_mask(radius, phi_start, phi_end):
     return mask / np.sum(mask)
 
 def filter_corner_distance(corner_mask, distance_threshold, num_neighbours):
-    rows, cols = corner_mask.shape
-    corner_indices = [
-        np.array([i, j])
-        for i in range(rows)
-        for j in range(cols)
-        if corner_mask[i,j]
-    ]
+    corner_indices = get_true_indices(corner_mask)
 
-    nearest_2_neighbours = [
+    nearest_neighbours = [
         find_k_nearest_neighbours(index_pair, corner_indices, num_neighbours)
         for index_pair in corner_indices
     ]
@@ -162,7 +181,7 @@ def filter_corner_distance(corner_mask, distance_threshold, num_neighbours):
     # create copy of amsk to not mutate input
     outmask = corner_mask[:]
     # eliminate corners not matching the distance criteria
-    for index_pair, neighbours in zip(corner_indices, nearest_2_neighbours):
+    for index_pair, neighbours in zip(corner_indices, nearest_neighbours):
         distances_above_threshold = [
             get_euclidean_distance(index_pair, neighbour) > distance_threshold
             for neighbour in neighbours
@@ -176,14 +195,8 @@ def filter_corner_distance(corner_mask, distance_threshold, num_neighbours):
     return outmask
 
 
-def filter_corner_angle(corner_mask, angle_threshold):
-    rows, cols = corner_mask.shape
-    corner_indices = [
-        np.array([i, j])
-        for i in range(rows)
-        for j in range(cols)
-        if corner_mask[i,j]
-    ]
+def filter_corner_angle(corner_mask, cos_threshold):
+    corner_indices = get_true_indices(corner_mask)
 
     nearest_2_neighbours = [
         find_k_nearest_neighbours(index_pair, corner_indices, 2)
@@ -197,12 +210,21 @@ def filter_corner_angle(corner_mask, angle_threshold):
         vec1 = index_pair - neighbours[0]
         vec2 = index_pair - neighbours[1]
 
-        angle = get_vec_angle(vec1, vec2)
+        cos_theta = get_vec_cos_angle(vec1, vec2)
 
-        if np.abs(angle) < angle_threshold:
+        if cos_theta < cos_threshold:
             outmask[index_pair[0], index_pair[1]] = False
 
     return outmask
+
+def get_true_indices(logical_mask):
+    rows, cols = logical_mask.shape
+    return [
+        np.array([i, j])
+        for i in range(rows)
+        for j in range(cols)
+        if logical_mask[i,j]
+    ]
 
 def find_k_nearest_neighbours(point, neighbours, k):
     # copy list to not mutate input
@@ -244,13 +266,13 @@ def logmag(im):
 
 if __name__=="__main__":
     # load chessboard image
-    im = cv2.imread("../../camera_calibration/calib_images/chess_pattern.png")
-    im = cv2.cvtColor(im,cv2.COLOR_BGR2GRAY)
-    rows, cols = im.shape
+    im_orig = cv2.imread("../../camera_calibration/calib_images/chess_pattern.png")
+    im_orig = cv2.cvtColor(im_orig ,cv2.COLOR_BGR2GRAY)
+    rows, cols = im_orig.shape
 
-    im = add_noise(im, 50)
+    im_orig = add_noise(im_orig, 50)
 
-    im_rot = rotate_bound(im, 45)
+    im_rot_orig = rotate_bound(im_orig, 45)
   
     pts1 = np.float32([[50, 50], 
                        [200, 50],
@@ -261,18 +283,19 @@ if __name__=="__main__":
                        [50, 125]]) 
     
     M = cv2.getAffineTransform(pts1, pts2) 
-    im_aff = cv2.warpAffine(im, M, (cols, rows))
+    im_aff_orig = cv2.warpAffine(im_orig, M, (cols, rows))
 
     im_titles_orig = ["Original Image", "Rotated Image", "Affined Image"]
 
     # show original images
-    show_images(im, im_rot, im_aff, titles=im_titles_orig)
+    show_images(im_orig, im_rot_orig, im_aff_orig, titles=im_titles_orig)
 
     # apply gaussian blur
-    gaussian_cutoff = 0.2
-    im = apply_gaussian_filter(im, gaussian_cutoff)
-    im_rot = apply_gaussian_filter(im_rot, gaussian_cutoff)
-    im_aff = apply_gaussian_filter(im_aff, gaussian_cutoff)
+    sigma = 20
+    mask_length = 60
+    im = apply_gaussian_blur(im_orig, fourier=False, sigma=sigma, mask_len=9)
+    im_rot = apply_gaussian_blur(im_rot_orig, fourier=False, sigma=sigma, mask_len=9)
+    im_aff = apply_gaussian_blur(im_aff_orig, fourier=False, sigma=sigma, mask_len=9)
 
     im_titles = [
         title + " Blurred"
@@ -295,5 +318,50 @@ if __name__=="__main__":
 
     # show hessian'd images
     show_images(im, im_rot, im_aff, titles=im_titles)
+
+    # # filter for centrosymmetry property
+    # radius = 20
+    # p = 0.2
+    # im = filter_corner_centrosymmetry(im_orig, im, radius, p)
+    # im_rot = filter_corner_centrosymmetry(im_rot_orig, im_rot, radius, p)
+    # im_aff = filter_corner_centrosymmetry(im_aff_orig, im_aff, radius, p)
+
+    # im_titles = [
+    #     title + " Sym Filter"
+    #     for title in im_titles_orig
+    # ]
+
+    # # show centrosymmetry filtered image
+    # show_images(im, im_rot, im_aff, titles=im_titles)
+
+    # # filter for distance property
+    # max_dist = 80
+    # im = filter_corner_distance(im, max_dist, 3)
+    # im_rot = filter_corner_distance(im_rot, max_dist, 3)
+    # im_aff = filter_corner_distance(im_aff, max_dist, 3)
+
+    # im_titles = [
+    #     title + " Dist Filter"
+    #     for title in im_titles_orig
+    # ]
+
+    # # show distance filtered image
+    # show_images(im, im_rot, im_aff, titles=im_titles)
+
+    # # filter for angle property
+    # num_iter = 3
+    # cos_thresh = 0.87
+    # for i in range(num_iter):
+    #     im = filter_corner_angle(im, cos_thresh)
+    #     im_rot = filter_corner_angle(im_rot, cos_thresh)
+    #     im_aff = filter_corner_angle(im_aff, cos_thresh)
+
+    # im_titles = [
+    #     title + " Dist Filter"
+    #     for title in im_titles_orig
+    # ]
+
+    # # show distance filtered image
+    # show_images(im, im_rot, im_aff, titles=im_titles)
 
     plt.show()
