@@ -24,25 +24,25 @@ import numpy as np
 import cv2
 import glob
 import argparse
+from utils.file_io_utils import load_calib_images, save_calib_coefficients
 
 parser = argparse.ArgumentParser(description='Camera Calibration Parameter Calculator')
-parser.add_argument('-c', '--cameraname', default = "SamsungGalaxyA8", type = str,
+parser.add_argument('-c', '--calib_name', default = "SamsungGalaxyA8", type = str,
         help = "The name of the camera used for calibration. Determines names of images" + 
                 "the program will try to pull as well as the name of the file containing calibration data")
-parser.add_argument('-s', '--square_size', default = 3, type = float,
+parser.add_argument('-s', '--square_size', default = 1.9, type = float,
         help = "The size of a square on the chess board in cm")
 parser.add_argument('-w', '--width', default = 6, type = float,
-        help = "Number of squares found on the thin side of the board")
-parser.add_argument('-h', '--height', default = 9, type = float,
-        help = "Number of squares found on the long side of the board")
+        help = "Number of intersections (x corners) found on the thin side of the board")
+parser.add_argument('-l', '--length', default = 9, type = float,
+        help = "Number of intersections (x corners) found on the long side of the board")
 
 args = parser.parse_args()
 
 # termination criteria
 criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001)
 
-
-def calibrate(camera_name, square_size, width, height):
+def calibrate(calib_name, square_size, width, height):
     """ Apply camera calibration operation for images in the given directory path. """
     # prepare object points, like (0,0,0), (1,0,0), (2,0,0) ....,(8,6,0)
     objp = np.zeros((height*width, 3), np.float32)
@@ -54,10 +54,9 @@ def calibrate(camera_name, square_size, width, height):
     objpoints = []  # 3d point in real world space
     imgpoints = []  # 2d points in image plane.
 
-    images = glob.glob("../camera_calibration/" + camera_name + "/*")
+    images = load_calib_images(calib_name)
 
-    for fname in images:
-        img = cv2.imread(fname)
+    for img in images:
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
         # Find the chess board corners
@@ -77,28 +76,7 @@ def calibrate(camera_name, square_size, width, height):
 
     return [ret, mtx, dist, rvecs, tvecs]
 
-def save_coefficients(mtx, dist, camera_name):
-    """ Save the camera matrix and the distortion coefficients to given path/file. """
-    cv_file = cv2.FileStorage("../camera_calibration/calib_params/" + camera_name + ".yml", cv2.FILE_STORAGE_WRITE)
-    cv_file.write("K", mtx)
-    cv_file.write("D", dist)
-    # note you *release* you don't close() a FileStorage object
-    cv_file.release()
-
-def load_coefficients(camera_name):
-    """ Loads camera matrix and distortion coefficients. """
-    # FILE_STORAGE_READ
-    cv_file = cv2.FileStorage("../camera_calibration/calib_params/" + camera_name + ".yml", cv2.FILE_STORAGE_READ)
-
-    # note we also have to specify the type to retrieve other wise we only get a
-    # FileNode object back instead of a matrix
-    camera_matrix = cv_file.getNode("K").mat()
-    dist_matrix = cv_file.getNode("D").mat()
-
-    cv_file.release()
-    return [camera_matrix, dist_matrix]
-
 if __name__ == "__main__":
-    ret, mtx, dist, rvecs, tvecs = calibrate(args.camera_name, args.square_size, args.width, args.height)
-    save_coefficients(mtx, dist, args.camera_name)
+    ret, mtx, dist, rvecs, tvecs = calibrate(args.calib_name, args.square_size, args.width, args.length)
+    save_calib_coefficients(mtx, dist, args.calib_name)
     print("Calibration is finished. RMS: ", ret)

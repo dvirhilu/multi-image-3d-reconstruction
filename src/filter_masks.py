@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 from scipy.signal import convolve2d
 from scipy.signal.windows import gaussian
 from matplotlib import cm
-from utils.im_view_utils import show_images
+import utils.plt_utils as plt_utils
 from utils.linalg_utils import get_euclidean_distance, get_vec_cos_angle, cart2d_2_pol
 from functools import reduce
 
@@ -41,7 +41,7 @@ def apply_gaussian_blur(image, fourier=False, sigma=3, mask_len=9, cutoff=0.25):
         # apply gaussian filter in frequency domain
         imfft_filtered = imfft * H
 
-        # show_images(logmag(H), logmag(imfft), logmag(imfft_filtered))
+        # plt_utils.show_images(logmag(H), logmag(imfft), logmag(imfft_filtered))
         
         # transform back and output
         return np.abs(ifft2(ifftshift(imfft_filtered)))
@@ -68,6 +68,20 @@ def fy_mask():
         [0, -1, 0]
     ])
 
+def sobelx_mask():
+    return np.array([
+        [1, 0, -1],
+        [2, 0, -2],
+        [1, 0, -1]
+    ])
+
+def sobely_mask():
+    return np.array([
+        [1, 2, 1],
+        [0, 0, 0],
+        [-1, -2, -1]
+    ])
+
 def fxx_mask():
     fx = fx_mask()
 
@@ -84,16 +98,36 @@ def fxy_mask():
 
     return convolve2d(fx, fy)
 
-def apply_hessian_corner_mask(image, c):
-    fxx = fxx_mask()
-    fyy = fyy_mask()
-    fxy = fxy_mask()
+def sobelxx_mask():
+    fx = sobelx_mask()
+
+    return convolve2d(fx, fx)
+
+def sobelyy_mask():
+    fy = sobely_mask()
+
+    return convolve2d(fy, fy)
+
+def sobelxy_mask():
+    fx = sobelx_mask()
+    fy = sobely_mask()
+
+    return convolve2d(fx, fy)
+
+def apply_hessian_corner_mask_fast(image, c, sobel=False):
+    if sobel:
+        fxx = sobelxx_mask()
+        fyy = sobelyy_mask()
+        fxy = sobelxy_mask()
+    else:
+        fxx = fxx_mask()
+        fyy = fyy_mask()
+        fxy = fxy_mask()
+        
 
     image_xx = convolve2d(image, fxx, mode='same')
     image_yy = convolve2d(image, fyy, mode='same')
     image_xy = convolve2d(image, fxy, mode='same')
-    
-    show_images(image_xx, image_yy, image_xy)
 
     # find eigenvalues of hessian matrix
     descriminant = np.sqrt(
@@ -110,6 +144,43 @@ def apply_hessian_corner_mask(image, c):
 
     # output the number of corners detected
     # print(np.sum(outimage))
+
+    return outimage
+
+def apply_hessian_corner_mask(image, windowsize=3, sobel=False):
+    if sobel:
+        fxx = sobelxx_mask()
+        fyy = sobelyy_mask()
+        fxy = sobelxy_mask()
+    else:
+        fxx = fxx_mask()
+        fyy = fyy_mask()
+        fxy = fxy_mask()
+
+    image_xx = convolve2d(image, fxx, mode='same')
+    image_yy = convolve2d(image, fyy, mode='same')
+    image_xy = convolve2d(image, fxy, mode='same')
+    
+    determinant = image_xx*image_xy - image_xy**2
+
+    plt_utils.show_images(determinant, image_xx, image_yy, image_xy)
+
+    # filter to only keep pixels that are local minimum within a window of windowsize and have determinant <= 0
+    rows, cols = determinant.shape
+    delta = windowsize // 2
+    outimage = np.zeros((rows, cols), dtype=bool)
+    for i in range(delta, rows-delta):
+        for j in range(delta, cols-delta):
+            local_min = determinant[i, j] < np.amin(determinant[(i+1):(i+delta+1), (j-delta):(j+delta+1)])
+            local_min = (determinant[i, j] < np.amin(determinant[i, (j-delta):j])) & local_min
+            local_min = (determinant[i, j] < np.amin(determinant[i, (j+1):(j+delta+1)])) & local_min
+            local_min = (determinant[i, j] < np.amin(determinant[(i-delta):i, (j-delta):(j+delta+1)])) & local_min
+            nonpositive_element = determinant[i,j] <= 0
+
+            outimage[i, j] = local_min & nonpositive_element
+
+    # output the number of corners detected
+    print(np.sum(outimage))
 
     return outimage
 
@@ -138,6 +209,9 @@ def filter_corner_centrosymmetry(image, corner_mask, circular_mask_radius, cutof
 
     # keep corner if either centosymmetry criteria pass
     outmask = corner_mask & (centosymmetry_criteria_1_mask|centosymmetry_criteria_2_mask)
+
+    # output how many corners were detected
+    print(np.sum(outmask))
 
     return outmask
 
@@ -242,6 +316,18 @@ def find_k_nearest_neighbours(point, neighbours, k):
     # return the k nearest neighbours excluding the point itself
     return neighbour_list[1:k+1] if point_in_neighbour_list else neighbour_list[:k]
 
+def get_nearest_neighbour_distance_distribution(corner_mask):
+    corner_indices = get_true_indices(corner_mask)
+
+    nearest_neighbours = [
+        find_k_nearest_neighbours(index_pair, corner_indices, 1)
+        for index_pair in corner_indices
+    ]
+
+    return [
+        get_euclidean_distance(index_pair, neighbour)
+        for (index_pair, neighbour) in zip(corner_indices, nearest_neighbours)
+    ]
 
 def add_noise(im, sigma):
     rows, cols = im.shape
@@ -266,7 +352,7 @@ def logmag(im):
 
 if __name__=="__main__":
     # load chessboard image
-    im_orig = cv2.imread("../../camera_calibration/calib_images/chess_pattern.png")
+    im_orig = cv2.imread("../camera_calibration/calib_images/chess_pattern.png")
     im_orig = cv2.cvtColor(im_orig ,cv2.COLOR_BGR2GRAY)
     rows, cols = im_orig.shape
 
@@ -288,28 +374,28 @@ if __name__=="__main__":
     im_titles_orig = ["Original Image", "Rotated Image", "Affined Image"]
 
     # show original images
-    show_images(im_orig, im_rot_orig, im_aff_orig, titles=im_titles_orig)
+    plt_utils.show_images(im_orig, im_rot_orig, im_aff_orig, titles=im_titles_orig)
 
-    # apply gaussian blur
-    sigma = 20
-    mask_length = 60
-    im = apply_gaussian_blur(im_orig, fourier=False, sigma=sigma, mask_len=9)
-    im_rot = apply_gaussian_blur(im_rot_orig, fourier=False, sigma=sigma, mask_len=9)
-    im_aff = apply_gaussian_blur(im_aff_orig, fourier=False, sigma=sigma, mask_len=9)
+    # # apply gaussian blur
+    # sigma = 1
+    # mask_length = 1
+    # im = apply_gaussian_blur(im_orig, fourier=False, sigma=sigma, mask_len=9)
+    # im_rot = apply_gaussian_blur(im_rot_orig, fourier=False, sigma=sigma, mask_len=9)
+    # im_aff = apply_gaussian_blur(im_aff_orig, fourier=False, sigma=sigma, mask_len=9)
 
-    im_titles = [
-        title + " Blurred"
-        for title in im_titles_orig
-    ]
+    # im_titles = [
+    #     title + " Blurred"
+    #     for title in im_titles_orig
+    # ]
     
-    # show blurred images
-    show_images(im, im_rot, im_aff, titles=im_titles)
+    # # show blurred images
+    # plt_utils.show_images(im, im_rot, im_aff, titles=im_titles)
 
-    threshold_const = 0.05
+    windowsize=3
     # apply hessian determinate mask
-    im = apply_hessian_corner_mask(im, threshold_const)
-    im_rot = apply_hessian_corner_mask(im_rot, threshold_const)
-    im_aff = apply_hessian_corner_mask(im_aff, threshold_const)
+    im = apply_hessian_corner_mask(im_orig, windowsize=windowsize, sobel=True)
+    im_rot = apply_hessian_corner_mask(im_rot_orig, windowsize=windowsize, sobel=True)
+    im_aff = apply_hessian_corner_mask(im_aff_orig, windowsize=windowsize, sobel=True)
 
     im_titles = [
         title + " Hess Corners"
@@ -317,7 +403,18 @@ if __name__=="__main__":
     ]
 
     # show hessian'd images
-    show_images(im, im_rot, im_aff, titles=im_titles)
+    plt_utils.show_images(im, im_rot, im_aff, titles=im_titles)
+
+    distances = get_nearest_neighbour_distance_distribution(im)
+    distances_rot = get_nearest_neighbour_distance_distribution(im_rot)
+    distances_aff = get_nearest_neighbour_distance_distribution(im_aff)
+
+    hist_titles = [
+        title + "Hess Distance Distribution"
+        for title in im_titles_orig
+    ]
+
+    plt_utils.plt_histograms(distances, distances_rot, distances_aff, titles=hist_titles)
 
     # # filter for centrosymmetry property
     # radius = 20
@@ -332,7 +429,7 @@ if __name__=="__main__":
     # ]
 
     # # show centrosymmetry filtered image
-    # show_images(im, im_rot, im_aff, titles=im_titles)
+    # plt_utils.show_images(im, im_rot, im_aff, titles=im_titles)
 
     # # filter for distance property
     # max_dist = 80
@@ -346,7 +443,7 @@ if __name__=="__main__":
     # ]
 
     # # show distance filtered image
-    # show_images(im, im_rot, im_aff, titles=im_titles)
+    # plt_utils.show_images(im, im_rot, im_aff, titles=im_titles)
 
     # # filter for angle property
     # num_iter = 3
@@ -362,6 +459,6 @@ if __name__=="__main__":
     # ]
 
     # # show distance filtered image
-    # show_images(im, im_rot, im_aff, titles=im_titles)
+    # plt_utils.show_images(im, im_rot, im_aff, titles=im_titles)
 
     plt.show()
