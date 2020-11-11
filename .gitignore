@@ -1,4 +1,5 @@
 *.pyc
+*.asv
 
 # # do not push logs to repo
 # log/

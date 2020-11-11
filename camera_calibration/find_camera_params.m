@@ -6,7 +6,7 @@
 % extracts the distortion parameters of the camera lens as well as the
 % intrinsic parameters (focal length, principal point, skew coefficient).
 % 
-% The script takes in images from calib_images/<camera_name>/*
+% The script takes in images from images/calibration/<camera_name>/*
 % and outputs the camera parameters to calib_params/<camera_name>.yml
 % 
 % Required: MATLAB Computer Vision Toolbox
@@ -20,10 +20,10 @@ clear all;
 % ===========================
 % Script Parameters
 % ===========================
-camera_name = "GalaxyA8";
-square_size = 30; % mm
+camera_name = "SamsungGalaxyA8";
+square_size = 1.9; % cm
 
 % ===========================
 % Launch Camera Calibration Tool
 % ===========================
-cameraCalibrator(append("./calib_images/", camera_name, "/"), square_size);
+cameraCalibrator(append("../images/calibration/", camera_name, "/"), square_size);
