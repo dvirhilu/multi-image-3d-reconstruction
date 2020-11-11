@@ -329,26 +329,14 @@ def get_nearest_neighbour_distance_distribution(corner_mask):
         for (index_pair, neighbour) in zip(corner_indices, nearest_neighbours)
     ]
 
-def add_noise(im, sigma):
-    rows, cols = im.shape
-
-    for i in range(rows):
-        for j in range(cols):
-            x = i - rows/2
-            y = j - cols/2
-            r = np.sqrt(x**2 + y**2)
-            should_swap = r < 40
-
-            if should_swap:
-                im[i][j] = 150
-    
-    return im
-
 def logmag(im):
     for i in range(im.shape[0]):
         for j in range(im.shape[1]):
             im[i,j] = 1e-300 if im[i,j]==0 else im[i,j]
     return np.log(np.abs(im))
+
+def undistort(image, *distortion_coefficients):
+    rows, cols = image.shape[:2]
 
 if __name__=="__main__":
     # load chessboard image

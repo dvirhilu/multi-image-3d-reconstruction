@@ -28,7 +28,10 @@ def get_key_point_descriptors():
     pass
 
 if __name__=="__main__":
-    images = file_io_utils.load_object_images("gluestick")
+    images = file_io_utils.load_object_images("monkey_thing")
+    k, d = file_io_utils.load_calib_coefficients("SamsungGalaxyA8")
+
+    
 
     images = images[:4]
 

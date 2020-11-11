@@ -26,7 +26,7 @@ def plt_histograms(*hists, titles=None):
 
     if not titles:
         titles = [
-            "image " + str(i)
+            "hist " + str(i)
             for i in range(len(hists))
         ]
 
