@@ -9,6 +9,7 @@ from matplotlib import cm
 import utils.plt_utils as plt_utils
 from utils.linalg_utils import get_euclidean_distance, get_vec_cos_angle, cart2d_2_pol
 from functools import reduce
+import utils.file_io_utils as file_io_utils
 
 def gaussian_filter(cutoff, rows, cols, center=True):
     u = np.linspace(-0.5, 0.5, rows)
@@ -184,6 +185,100 @@ def apply_hessian_corner_mask(image, windowsize=3, sobel=False):
 
     return outimage
 
+def apply_harris_corner_filter(image, windowsize=10, sobel_size=3, k=0.04, use_cv=True, p=0.1):
+    if use_cv:
+        image = np.float32(image)
+        dst = cv2.cornerHarris(image,windowsize, sobel_size, k)
+
+        # Threshold for an optimal value, it may vary depending on the image.
+        corners = dst > p*dst.max()
+
+        return corners
+
+def squish_cluster_2_centroid_filter(corner_mask):
+    rows, cols = corner_mask.shape[:2]
+
+    for i in range(1,rows-1):
+        for j in range(1, cols-1):
+            if corner_mask[i, j]:
+                # get cluster around discovered point
+                (x1, x2, y1, y2) = find_cluster(corner_mask, i, i+1, j, j+1)
+                # extract window containing cluster
+                window = corner_mask[x1:x2, y1:y2]
+                # find cluster centroid
+                (centroidx, centroidy) = find_centroid(window)
+
+                # create new window with only centroid as 1
+                new_window = np.zeros(window.shape, dtype=bool)
+                centroidx = int(round(centroidx))
+                centroidy = int(round(centroidy))
+                new_window[centroidx, centroidy] = True
+
+                # update corner mask cluster to centroid only
+                corner_mask[x1:x2, y1:y2] = new_window
+
+    
+    return corner_mask
+
+def find_centroid(window):
+    rows, cols = window.shape[:2]
+
+    total_mass = np.sum(window)
+    x_centroid = 0
+    y_centroid = 0
+    for i in range(rows):
+        for j in range(cols):
+            mass = window[i,j]
+            x_centroid += i*mass / total_mass
+            y_centroid += j*mass / total_mass
+    
+    return(x_centroid, y_centroid)
+
+
+def find_cluster(corner_mask, xstart, xstop, ystart, ystop):
+    left_neighbours = corner_mask[xstart-1, ystart-1:ystop+1]
+    right_neighbours = corner_mask[xstop+1, ystart-1:ystop+1]
+    top_neighbours = corner_mask[xstart-1:xstop+1, ystart-1]
+    bottom_neighbours = corner_mask[xstart-1:xstop+1, ystop+1]
+
+    # if neighbours on any side include elements, expand to that side
+    inc_left    = reduce(lambda a,b: a or b, left_neighbours)    
+    inc_right   = reduce(lambda a,b: a or b, right_neighbours)    
+    inc_top     = reduce(lambda a,b: a or b, top_neighbours)    
+    inc_bottom  = reduce(lambda a,b: a or b, bottom_neighbours)
+
+    # flag that a resize is needed
+    increase_window_size = inc_left and inc_right and inc_top and inc_bottom
+
+    if increase_window_size:
+        # calcualte new expanded window dimensions based on where expansion is needed
+        xstart  = xstart-1  if inc_left     else xstart
+        xstop   = xstop+1   if inc_right    else xstop
+        ystart  = ystart-1  if inc_top      else ystart
+        ystop   = ystop+1   if inc_bottom    else ystop
+
+        # call function recuresively until window does not need to resize
+        return find_cluster(corner_mask, xstart, xstop, ystart, ystop)
+    
+    else:
+        return (xstart, xstop, ystart, ystop)
+    
+    # areas_around_window = np.array([
+    #     corner_mask[xstart-1:xstop+1, ystart-1],
+    #     corner_mask[xstart-1:xstop+1, ystop+1],
+    #     corner_mask[xstart-1, ystart-1:ystop+1],
+    #     corner_mask[xstop+1, ystart-1:ystop+1]
+    # ]).flatten()
+
+    # # check if any of the neighbours are 1. If so, window size should increase
+    # increase_window_size = reduce(lambda a, b: a or b, areas_around_window)
+
+    # if increase_window_size:
+    #     return find_cluster(corner_mask, xstart-1, xstop+1, ystart-1, ystop+1)
+    # else:
+    #     return (xstart, xstop, ystart, ystop)
+
+
 def filter_corner_centrosymmetry(image, corner_mask, circular_mask_radius, cutoff_ratio):
     I_masks = [
         partially_averaging_circular_mask(circular_mask_radius, i*360/8, (i+1)*360/8)
@@ -335,74 +430,94 @@ def logmag(im):
             im[i,j] = 1e-300 if im[i,j]==0 else im[i,j]
     return np.log(np.abs(im))
 
-def undistort(image, *distortion_coefficients):
-    rows, cols = image.shape[:2]
+def get_undistored_k_matrix(image, k, d):
+    h,  w = image.shape[:2]
+    newcameramtx, roi = cv2.getOptimalNewCameraMatrix(k, d, (w,h), 1, (w,h))
+
+    return newcameramtx, roi
+
+def undistort(object_name, calib_name):
+    images = io.load_object_images(object_name)
+    k, d = io.load_calib_coefficients(calib_name)
+
+    for (image, i) in zip(images, range(len(images))):            
+        newcameramtx, roi = get_undistored_k_matrix(image, k, d)
+
+        # undistort
+        undst = cv2.undistort(image, k, d, None, newcameramtx)
+        # crop the image
+        x, y, w, h = roi
+        undst = undst[y:y+h, x:x+w]
+
+        # write new camera calibration info
+        
+        cv2.imwrite("images/objects/" + object_name + "_undistorted/image" + str(i) + ".png", undst)
 
 if __name__=="__main__":
-    # load chessboard image
-    im_orig = cv2.imread("../camera_calibration/calib_images/chess_pattern.png")
-    im_orig = cv2.cvtColor(im_orig ,cv2.COLOR_BGR2GRAY)
-    rows, cols = im_orig.shape
 
-    im_orig = add_noise(im_orig, 50)
-
-    im_rot_orig = rotate_bound(im_orig, 45)
-  
-    pts1 = np.float32([[50, 50], 
-                       [200, 50],
-                       [50, 200]]) 
-    
-    pts2 = np.float32([[-5, -50], 
-                       [100, 25],  
-                       [50, 125]]) 
-    
-    M = cv2.getAffineTransform(pts1, pts2) 
-    im_aff_orig = cv2.warpAffine(im_orig, M, (cols, rows))
-
-    im_titles_orig = ["Original Image", "Rotated Image", "Affined Image"]
-
-    # show original images
-    plt_utils.show_images(im_orig, im_rot_orig, im_aff_orig, titles=im_titles_orig)
+    images = file_io_utils.load_object_images("monkey_thing")[:2]
+    images = [
+        cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        for image in images
+    ]
+    plt_utils.show_images(*images)
 
     # # apply gaussian blur
-    # sigma = 1
-    # mask_length = 1
-    # im = apply_gaussian_blur(im_orig, fourier=False, sigma=sigma, mask_len=9)
-    # im_rot = apply_gaussian_blur(im_rot_orig, fourier=False, sigma=sigma, mask_len=9)
-    # im_aff = apply_gaussian_blur(im_aff_orig, fourier=False, sigma=sigma, mask_len=9)
-
-    # im_titles = [
-    #     title + " Blurred"
-    #     for title in im_titles_orig
+    # sigma = 2
+    # mask_length = 10
+    # cutoff = 0.2
+    # images = [
+    #     # apply_gaussian_blur(image, fourier=True, cutoff=cutoff)
+    #     apply_gaussian_blur(image, fourier=False, sigma=sigma, mask_len=mask_length)
+    #     for image in images
     # ]
     
     # # show blurred images
-    # plt_utils.show_images(im, im_rot, im_aff, titles=im_titles)
+    # plt_utils.show_images(*images)
 
-    windowsize=3
-    # apply hessian determinate mask
-    im = apply_hessian_corner_mask(im_orig, windowsize=windowsize, sobel=True)
-    im_rot = apply_hessian_corner_mask(im_rot_orig, windowsize=windowsize, sobel=True)
-    im_aff = apply_hessian_corner_mask(im_aff_orig, windowsize=windowsize, sobel=True)
-
-    im_titles = [
-        title + " Hess Corners"
-        for title in im_titles_orig
+    windowsize = 10
+    sobel_size = 3
+    k = 0.04
+    p = 0.1
+    corners = [
+        apply_harris_corner_filter(image, windowsize=windowsize, sobel_size=sobel_size, k=k, p=p)
+        for image in images
     ]
 
-    # show hessian'd images
-    plt_utils.show_images(im, im_rot, im_aff, titles=im_titles)
+    plt_utils.plot_corner_points(images, corners)
 
-    distances = get_nearest_neighbour_distance_distribution(im)
-    distances_rot = get_nearest_neighbour_distance_distribution(im_rot)
-    distances_aff = get_nearest_neighbour_distance_distribution(im_aff)
-
-    hist_titles = [
-        title + "Hess Distance Distribution"
-        for title in im_titles_orig
+    corners = [
+        squish_cluster_2_centroid_filter(corner)
+        for corner in corners
     ]
 
-    plt_utils.plt_histograms(distances, distances_rot, distances_aff, titles=hist_titles)
+    plt_utils.plot_corner_points(images, corners)
+    
+    plt.show()
+
+    # windowsize=5
+    # # apply hessian determinate mask
+    # corners = [
+    #     apply_hessian_corner_mask(image, windowsize=windowsize, sobel=False)
+    #     for image in images
+    # ]
+
+    # print(np.where(corners[0]))
+
+    # # show hessian'd images
+    # plt_utils.plot_corner_points(images, corners)
+    # plt_utils.show_images(*corners)
+
+    # distances = get_nearest_neighbour_distance_distribution(im)
+    # distances_rot = get_nearest_neighbour_distance_distribution(im_rot)
+    # distances_aff = get_nearest_neighbour_distance_distribution(im_aff)
+
+    # hist_titles = [
+    #     title + "Hess Distance Distribution"
+    #     for title in im_titles_orig
+    # ]
+
+    # plt_utils.plt_histograms(distances, distances_rot, distances_aff, titles=hist_titles)
 
     # # filter for centrosymmetry property
     # radius = 20
@@ -448,5 +563,3 @@ if __name__=="__main__":
 
     # # show distance filtered image
     # plt_utils.show_images(im, im_rot, im_aff, titles=im_titles)
-
-    plt.show()
