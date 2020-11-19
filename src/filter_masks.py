@@ -202,20 +202,20 @@ def squish_cluster_2_centroid_filter(corner_mask):
         for j in range(1, cols-1):
             if corner_mask[i, j]:
                 # get cluster around discovered point
-                (x1, x2, y1, y2) = find_cluster(corner_mask, i, i+1, j, j+1)
+                (y1, y2, x1, x2) = find_cluster(corner_mask, i, i+1, j, j+1)
                 # extract window containing cluster
-                window = corner_mask[x1:x2, y1:y2]
+                window = corner_mask[y1:y2, x1:x2]
                 # find cluster centroid
-                (centroidx, centroidy) = find_centroid(window)
+                (centroidy, centroidx) = find_centroid(window)
 
                 # create new window with only centroid as 1
                 new_window = np.zeros(window.shape, dtype=bool)
-                centroidx = int(round(centroidx))
                 centroidy = int(round(centroidy))
-                new_window[centroidx, centroidy] = True
+                centroidx = int(round(centroidx))
+                new_window[centroidy, centroidx] = True
 
                 # update corner mask cluster to centroid only
-                corner_mask[x1:x2, y1:y2] = new_window
+                corner_mask[y1:y2, x1:x2] = new_window
 
     
     return corner_mask
@@ -224,91 +224,80 @@ def find_centroid(window):
     rows, cols = window.shape[:2]
 
     total_mass = np.sum(window)
-    x_centroid = 0
     y_centroid = 0
+    x_centroid = 0
     for i in range(rows):
         for j in range(cols):
             mass = window[i,j]
-            x_centroid += i*mass / total_mass
-            y_centroid += j*mass / total_mass
+            y_centroid += i*mass / total_mass
+            x_centroid += j*mass / total_mass
     
-    return(x_centroid, y_centroid)
+    return(y_centroid, x_centroid)
 
 
-def find_cluster(corner_mask, xstart, xstop, ystart, ystop):
-    left_neighbours = corner_mask[xstart-1, ystart-1:ystop+1]
-    right_neighbours = corner_mask[xstop+1, ystart-1:ystop+1]
-    top_neighbours = corner_mask[xstart-1:xstop+1, ystart-1]
-    bottom_neighbours = corner_mask[xstart-1:xstop+1, ystop+1]
+def find_cluster(corner_mask, ystart, ystop, xstart, xstop):
+    top_neighbours = corner_mask[ystart-1, xstart-1:xstop+1]
+    bottom_neighbours = corner_mask[ystop, xstart-1:xstop+1]
+    left_neighbours = corner_mask[ystart-1:ystop+1, xstart-1]
+    right_neighbours = corner_mask[ystart-1:ystop+1, xstop]
 
     # if neighbours on any side include elements, expand to that side
-    inc_left    = reduce(lambda a,b: a or b, left_neighbours)    
-    inc_right   = reduce(lambda a,b: a or b, right_neighbours)    
     inc_top     = reduce(lambda a,b: a or b, top_neighbours)    
     inc_bottom  = reduce(lambda a,b: a or b, bottom_neighbours)
+    inc_left    = reduce(lambda a,b: a or b, left_neighbours)    
+    inc_right   = reduce(lambda a,b: a or b, right_neighbours)    
 
     # flag that a resize is needed
-    increase_window_size = inc_left and inc_right and inc_top and inc_bottom
-
+    increase_window_size =  inc_top or inc_bottom or inc_left or inc_right
+    
     if increase_window_size:
         # calcualte new expanded window dimensions based on where expansion is needed
-        xstart  = xstart-1  if inc_left     else xstart
-        xstop   = xstop+1   if inc_right    else xstop
         ystart  = ystart-1  if inc_top      else ystart
         ystop   = ystop+1   if inc_bottom    else ystop
+        xstart  = xstart-1  if inc_left     else xstart
+        xstop   = xstop+1   if inc_right    else xstop
 
         # call function recuresively until window does not need to resize
-        return find_cluster(corner_mask, xstart, xstop, ystart, ystop)
+        return find_cluster(corner_mask, ystart, ystop, xstart, xstop)
     
     else:
-        return (xstart, xstop, ystart, ystop)
-    
-    # areas_around_window = np.array([
-    #     corner_mask[xstart-1:xstop+1, ystart-1],
-    #     corner_mask[xstart-1:xstop+1, ystop+1],
-    #     corner_mask[xstart-1, ystart-1:ystop+1],
-    #     corner_mask[xstop+1, ystart-1:ystop+1]
-    # ]).flatten()
+        return (ystart, ystop, xstart, xstop)
 
-    # # check if any of the neighbours are 1. If so, window size should increase
-    # increase_window_size = reduce(lambda a, b: a or b, areas_around_window)
-
-    # if increase_window_size:
-    #     return find_cluster(corner_mask, xstart-1, xstop+1, ystart-1, ystop+1)
-    # else:
-    #     return (xstart, xstop, ystart, ystop)
-
-
-def filter_corner_centrosymmetry(image, corner_mask, circular_mask_radius, cutoff_ratio):
+def filter_corner_centrosymmetry(image, corner_mask, r, p):
     I_masks = [
-        partially_averaging_circular_mask(circular_mask_radius, i*360/8, (i+1)*360/8)
+        partially_averaging_circular_mask(r, i*360/8, (i+1)*360/8)
         for i in range(8)
     ]
 
-    # apply partial circular masks to find average in different sections
-    I = [
-        convolve2d(image, kernel, 'same')
-        for kernel in I_masks
-    ]
+    rows, cols = corner_mask.shape[:2]
 
-    # average intensity differences between areas in circular mask
-    D1 = np.abs(I[0] - I[4]) # D1 = |I1 - I5|
-    D2 = np.abs(I[2] - I[6]) # D2 = |I3 - I7|
-    D3 = np.abs(I[0] + I[4] - I[2] - I[6])/2 # D3 = |I1 + I5 - I3 - I7|/2
-    D4 = np.abs(I[1] - I[5]) # D4 = |I2 - I6|
-    D5 = np.abs(I[3] - I[7]) # D5 = |I4 - I8|
-    D6 = np.abs(I[1] + I[5] - I[3] - I[7])/2 # D6 = |I2 + I6 - I4 - I8|/2
+    for i in range(rows):
+        for j in range(cols):
+            if corner_mask[i,j]:
+                corner_neighbourhood = image[i-r:i+r, j-r:j+r]
 
-    centosymmetry_criteria_1_mask = (D1 < cutoff_ratio*D3) | (D2 < cutoff_ratio*D3)
-    centosymmetry_criteria_2_mask = (D4 < cutoff_ratio*D6) | (D5 < cutoff_ratio*D6)
+                I = [
+                    np.sum(corner_neighbourhood*mask)
+                    for mask in I_masks
+                ]
 
-    # keep corner if either centosymmetry criteria pass
-    outmask = corner_mask & (centosymmetry_criteria_1_mask|centosymmetry_criteria_2_mask)
+                # average intensity differences between areas in circular mask
+                D1 = np.abs(I[0] - I[4]) # D1 = |I1 - I5|
+                D2 = np.abs(I[2] - I[6]) # D2 = |I3 - I7|
+                D3 = np.abs(I[0] + I[4] - I[2] - I[6])/2 # D3 = |I1 + I5 - I3 - I7|/2
+                D4 = np.abs(I[1] - I[5]) # D4 = |I2 - I6|
+                D5 = np.abs(I[3] - I[7]) # D5 = |I4 - I8|
+                D6 = np.abs(I[1] + I[5] - I[3] - I[7])/2 # D6 = |I2 + I6 - I4 - I8|/2
+    
+                centrosymmetry_criteria_1_mask = (D1 < p*D3) | (D2 < p*D3)
+                centrosymmetry_criteria_2_mask = (D4 < p*D6) | (D5 < p*D6)
+
+                corner_mask[i,j] = centrosymmetry_criteria_1_mask | centrosymmetry_criteria_2_mask
 
     # output how many corners were detected
-    print(np.sum(outmask))
+    print(np.sum(corner_mask))
 
-    return outmask
+    return corner_mask
 
 
 def partially_averaging_circular_mask(radius, phi_start, phi_end):
@@ -424,6 +413,47 @@ def get_nearest_neighbour_distance_distribution(corner_mask):
         for (index_pair, neighbour) in zip(corner_indices, nearest_neighbours)
     ]
 
+def find_threshold_params(distances):
+    num_elements = len(distances)
+
+    # generate histogram with bin steps of 5 pixels
+    num_bins = int((max(distances) - min(distances))/5)
+    hist, bin_edges = np.histogram(distances, bins=num_bins)
+
+    max_index = np.argmax(hist)
+
+    r = 0
+    for i in range(int(num_bins/2)):
+        num_elements_in_window = np.sum(hist[max_index-i:max_index+i])
+        power_percentage = num_elements_in_window / num_elements
+        if power_percentage > 0.8:
+            r = i
+            break
+
+    # remove elements not in 80% window
+    window = np.array([
+        x 
+        for x in distances 
+        if bin_edges[max_index-r] <= x <= bin_edges[max_index+1]
+    ])
+
+    # calculate amin and amax
+    mu = np.average(window)
+    sigma = np.std(window)
+    amin = mu - 3*sigma
+    amax = mu + 3*sigma
+
+    print(mu, sigma, amin, amax)
+
+    # calcualte threshold values
+    r = int(round(0.7*amin))
+    p = 0.3*amax/amin
+    # p = 0.2
+    d = 2*amax
+    t = 0.4*amax/amin
+
+    return (r, p, d, t)
+
 def logmag(im):
     for i in range(im.shape[0]):
         for j in range(im.shape[1]):
@@ -487,15 +517,72 @@ if __name__=="__main__":
     plt_utils.plot_corner_points(images, corners)
 
     corners = [
-        squish_cluster_2_centroid_filter(corner)
+        squish_cluster_2_centroid_filter(corner) 
         for corner in corners
     ]
 
     plt_utils.plot_corner_points(images, corners)
+
+    distances = [
+        get_nearest_neighbour_distance_distribution(corner)
+        for corner in corners
+    ]
+
+    min_distance = 20
+    max_distance = 150
+    # remove items below threshold or above 
+    distances = [
+        np.array([
+            x for x in distance if min_distance <= x <= max_distance
+        ])
+        for distance in distances
+    ]
+
+    plt_utils.plt_histograms(*distances)
+
+    r_vals = [
+        find_threshold_params(distance)[0]
+        for distance in distances
+    ]
+    p_vals = [
+        find_threshold_params(distance)[1]
+        for distance in distances
+    ]
+    d_vals = [
+        find_threshold_params(distance)[2]
+        for distance in distances
+    ]
+    t_vals = [
+        find_threshold_params(distance)[3]
+        for distance in distances
+    ]
+
+    print(r_vals)
+    print(p_vals)
+    print(d_vals)
+    print(t_vals)
+
+    # filter for centrosymmetry property
+    corners = [
+        filter_corner_centrosymmetry(image, corner, r, p)
+        for (image, corner, r, p) in zip(images, corners, r_vals, p_vals)
+    ]
+
+    # show centrosymmetry filtered corners
+    plt_utils.plot_corner_points(images, corners)
+
+    # # filter for centrosymmetry property
+    # corners = [
+    #     filter_corner_distance(corner, d, 3)
+    #     for (corner, d) in zip(corners, d_vals)
+    # ]
+
+    # # show centrosymmetry filtered corners
+    # plt_utils.plot_corner_points(images, corners)
     
     plt.show()
 
-    # windowsize=5
+    # windowsize=50
     # # apply hessian determinate mask
     # corners = [
     #     apply_hessian_corner_mask(image, windowsize=windowsize, sobel=False)
@@ -519,20 +606,6 @@ if __name__=="__main__":
 
     # plt_utils.plt_histograms(distances, distances_rot, distances_aff, titles=hist_titles)
 
-    # # filter for centrosymmetry property
-    # radius = 20
-    # p = 0.2
-    # im = filter_corner_centrosymmetry(im_orig, im, radius, p)
-    # im_rot = filter_corner_centrosymmetry(im_rot_orig, im_rot, radius, p)
-    # im_aff = filter_corner_centrosymmetry(im_aff_orig, im_aff, radius, p)
-
-    # im_titles = [
-    #     title + " Sym Filter"
-    #     for title in im_titles_orig
-    # ]
-
-    # # show centrosymmetry filtered image
-    # plt_utils.show_images(im, im_rot, im_aff, titles=im_titles)
 
     # # filter for distance property
     # max_dist = 80

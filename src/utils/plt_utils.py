@@ -42,7 +42,7 @@ def plt_histograms(*hists, titles=None):
     f, axs = plt.subplots(rows, cols)
     axs = axs.flatten()
     for i in range(len(hists)):
-        bins_num = int(np.log2(len(hists[i])) + 1)
+        bins_num = int(max(hists[i]) - min(hists[i]))
         axs[i].hist(hists[i], bins=bins_num, histtype='step')
         axs[i].set_title(titles[i])
         
