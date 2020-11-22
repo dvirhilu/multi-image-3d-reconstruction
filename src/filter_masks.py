@@ -181,7 +181,7 @@ def apply_hessian_corner_mask(image, windowsize=3, sobel=False):
             outimage[i, j] = local_min & nonpositive_element
 
     # output the number of corners detected
-    print(np.sum(outimage))
+    # print(np.sum(outimage))
 
     return outimage
 
@@ -281,6 +281,8 @@ def filter_corner_centrosymmetry(image, corner_mask, r, p):
                     for mask in I_masks
                 ]
 
+                # print(I)
+
                 # average intensity differences between areas in circular mask
                 D1 = np.abs(I[0] - I[4]) # D1 = |I1 - I5|
                 D2 = np.abs(I[2] - I[6]) # D2 = |I3 - I7|
@@ -288,14 +290,16 @@ def filter_corner_centrosymmetry(image, corner_mask, r, p):
                 D4 = np.abs(I[1] - I[5]) # D4 = |I2 - I6|
                 D5 = np.abs(I[3] - I[7]) # D5 = |I4 - I8|
                 D6 = np.abs(I[1] + I[5] - I[3] - I[7])/2 # D6 = |I2 + I6 - I4 - I8|/2
+
+                # print(D1, D2, D3, D4, D5, D6)
     
-                centrosymmetry_criteria_1_mask = (D1 < p*D3) | (D2 < p*D3)
-                centrosymmetry_criteria_2_mask = (D4 < p*D6) | (D5 < p*D6)
+                centrosymmetry_criteria_1_mask = (D1 < p*D3) & (D2 < p*D3)
+                centrosymmetry_criteria_2_mask = (D4 < p*D6) & (D5 < p*D6)
 
                 corner_mask[i,j] = centrosymmetry_criteria_1_mask | centrosymmetry_criteria_2_mask
 
     # output how many corners were detected
-    print(np.sum(corner_mask))
+    # print(np.sum(corner_mask))
 
     return corner_mask
 
@@ -443,16 +447,50 @@ def find_threshold_params(distances):
     amin = mu - 3*sigma
     amax = mu + 3*sigma
 
-    print(mu, sigma, amin, amax)
+    # print(mu, sigma, amin, amax)
 
     # calcualte threshold values
     r = int(round(0.7*amin))
     p = 0.3*amax/amin
-    # p = 0.2
+    # p = 0.2(
     d = 2*amax
     t = 0.4*amax/amin
 
     return (r, p, d, t)
+
+def get_desired_chessboard_points(corner_mask, num_neighbours=3):
+    x = np.where(corner_mask)[1]
+    y = np.where(corner_mask)[0]
+
+    A_index = np.argmin(x)
+    B_index = np.argmax(x)
+    C_index = np.argmin(y)
+    D_index = np.argmax(y)
+
+    A = np.array([y[A_index], x[A_index]])
+    B = np.array([y[B_index], x[B_index]])
+    C = np.array([y[C_index], x[C_index]])
+    D = np.array([y[D_index], x[D_index]])
+
+    print(A, B, C, D)
+
+    neighbour_list = [
+        np.array([y_val, x_val])
+        for (y_val, x_val) in zip(y,x)
+    ]
+
+    desired_corner_indices = [A, B, C, D]
+    desired_corner_indices = desired_corner_indices + find_k_nearest_neighbours(A, neighbour_list, num_neighbours)
+    desired_corner_indices = desired_corner_indices + find_k_nearest_neighbours(B, neighbour_list, num_neighbours)
+    desired_corner_indices = desired_corner_indices + find_k_nearest_neighbours(C, neighbour_list, num_neighbours)
+    desired_corner_indices = desired_corner_indices + find_k_nearest_neighbours(D, neighbour_list, num_neighbours)
+
+    outmask = np.zeros(corner_mask.shape, dtype=bool)
+    for corner in desired_corner_indices:
+        outmask[corner[0], corner[1]] = True
+
+    return outmask
+
 
 def logmag(im):
     for i in range(im.shape[0]):
@@ -485,7 +523,7 @@ def undistort(object_name, calib_name):
 
 if __name__=="__main__":
 
-    images = file_io_utils.load_object_images("monkey_thing")[:2]
+    images = file_io_utils.load_object_images("monkey_thing")
     images = [
         cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         for image in images
@@ -516,19 +554,21 @@ if __name__=="__main__":
 
     plt_utils.plot_corner_points(images, corners)
 
+    plt.show()
+
     corners = [
         squish_cluster_2_centroid_filter(corner) 
         for corner in corners
     ]
 
-    plt_utils.plot_corner_points(images, corners)
+    # plt_utils.plot_corner_points(images, corners)
 
     distances = [
         get_nearest_neighbour_distance_distribution(corner)
         for corner in corners
     ]
 
-    min_distance = 20
+    min_distance = 0
     max_distance = 150
     # remove items below threshold or above 
     distances = [
@@ -538,7 +578,7 @@ if __name__=="__main__":
         for distance in distances
     ]
 
-    plt_utils.plt_histograms(*distances)
+    # plt_utils.plt_histograms(*distances)
 
     r_vals = [
         find_threshold_params(distance)[0]
@@ -557,10 +597,10 @@ if __name__=="__main__":
         for distance in distances
     ]
 
-    print(r_vals)
-    print(p_vals)
-    print(d_vals)
-    print(t_vals)
+    # print(r_vals)
+    # print(p_vals)
+    # print(d_vals)
+    # print(t_vals)
 
     # filter for centrosymmetry property
     corners = [
@@ -569,7 +609,26 @@ if __name__=="__main__":
     ]
 
     # show centrosymmetry filtered corners
+    # plt_utils.plot_corner_points(images, corners)
+
+    # get desired corners
+    corners = [
+        get_desired_chessboard_points(corner, 3)
+        for corner in corners
+    ]
+
+    # show desired corners
+    # plt_utils.plot_corner_points(images, corners)
+    
+    # compare corners and images
     plt_utils.plot_corner_points(images, corners)
+
+    # corner = corners[0][:500, :500]
+    # image = images[0][:500, :500]
+
+    # corner_new = filter_corner_centrosymmetry(image, corner, r_vals[0], p_vals[0])
+
+    # plt_utils.show_images(image, corner)
 
     # # filter for centrosymmetry property
     # corners = [
