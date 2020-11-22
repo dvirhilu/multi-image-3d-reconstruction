@@ -71,6 +71,8 @@ def rotate_vec(vec, theta, rot_axis):
 def get_euclidean_distance(vec1, vec2):
     return norm(vec2 - vec1)
     
-
 def get_vec_cos_angle(vec1, vec2):
     return np.dot(vec1, vec2) / (norm(vec1)*norm(vec2))
+
+def cross_2d(vec1, vec2):
+    return vec1[0]*vec2[1] - vec1[1]*vec2[0]
