@@ -1,5 +1,5 @@
 import numpy as np
-from numpy.linalg import norm
+from scipy.linalg import norm, inv
 
 ##################################
 # Coordinate System Conversions
@@ -66,7 +66,7 @@ def rotate_vec(vec, theta, rot_axis):
             [r_31, r_32, r_33]
         ])
 
-    return np.matmul(R, vec)
+    return R @ vec
 
 def get_euclidean_distance(vec1, vec2):
     return norm(vec2 - vec1)
@@ -76,3 +76,13 @@ def get_vec_cos_angle(vec1, vec2):
 
 def cross_2d(vec1, vec2):
     return vec1[0]*vec2[1] - vec1[1]*vec2[0]
+
+##################################
+# Matrix Operations
+##################################(
+
+def pseudo_inv(A):
+    gramian = A.T @ A
+    inv_gramian = inv(gramian)
+
+    return inv_gramian @ A.T

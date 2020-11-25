@@ -294,7 +294,7 @@ def sort_corner_neighbourhood(corner_point, corner_neighbourhood):
 def sort_corners(image, corners):
     ab_distance = get_euclidean_distance(corners[0], corners[1])
     ac_distance = get_euclidean_distance(corners[1], corners[2])
-    print(ab_distance, ac_distance)
+    # print(ab_distance, ac_distance)
     long_side_up = ab_distance > ac_distance
 
     rows, cols = image.shape[:2]
@@ -330,6 +330,24 @@ def sort_corners(image, corners):
         else:
             return np.roll(corners, -6)
 
+def get_subpixel_coordinates(image, point_list, windowsize=10):
+    subpixel_points = []
+    for point in point_list:
+        i = point[0]
+        j = point[1]
+        r = int(windowsize/2)
+        window = image[i-r:i+r, j-r:j+r]
+        (cy, cx) = find_centroid(window)
+
+        # centroid within window, need to shift to image point
+        cx += j-r
+        cy += i-r
+
+        subpixel_points.append(np.array([cx, cy]))
+
+    return subpixel_points
+
+
 def get_ordered_image_points(image, windowsize=10 ,sobel_size=3, k=0.04, harris_threshold=0.1, r=15, p=0.4):
 
     # use Harris corner detection to get initial corner distribution
@@ -349,6 +367,9 @@ def get_ordered_image_points(image, windowsize=10 ,sobel_size=3, k=0.04, harris_
     # since the object points are hard to filter out, only gather corners of the chessboard and 3 nearest neighbours
     sorted_point_list, corner_mask = get_desired_chessboard_points(corner_mask, image)
 
+    # get subpixel location of points
+    sorted_point_list = get_subpixel_coordinates(image, sorted_point_list, windowsize=windowsize)
+
     # TODO: create function to automatically check validity of results
 
     return (True, sorted_point_list, corner_mask)
@@ -359,10 +380,11 @@ if __name__=="__main__":
 
     images = file_io_utils.load_object_images("monkey_thing")
     # good_indices = [0, 2, 4, 5, 7, 10, 11]
-    # images = [
-    #     images[i] 
-    #     for i in good_indices
-    # ]
+    good_indices = [0, 2]
+    images = [
+        images[i] 
+        for i in good_indices
+    ]
     images = [
         cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         for image in images
@@ -404,9 +426,10 @@ if __name__=="__main__":
         if is_valid
     ]
 
-    print(len(corners), len(image_points), np.shape(ret_tuples))
+    print(len(corners), len(image_points), np.shape(ret_tuples), np.shape(is_valids))
 
     # show desired corners
     plt_utils.plot_point_path(images, corners, image_points)
+    plt_utils.plot_image_points(images, image_points)
     
     plt.show()

@@ -67,6 +67,35 @@ def plot_corner_points(images, corners, titles = None, cmap=cm.get_cmap("Greys")
         axs[i].scatter(x, y)
         axs[i].set_title(titles[i])
 
+def plot_image_points(images, image_points, titles = None, cmap=cm.get_cmap("Greys")):
+    rows = int(np.sqrt(len(images)))
+    cols = int(np.ceil(len(images) / rows))
+
+    if not titles:
+        titles = [
+            "image " + str(i)
+            for i in range(len(images))
+        ]
+
+    print("Plotting", rows, "rows and", cols, "columns")
+    
+    f, axs = plt.subplots(rows, cols)
+    axs = axs.flatten()
+    for i in range(len(images)):
+        axs[i].imshow(images[i], cmap=cmap)
+        
+        x = [
+            point[0] 
+            for point in image_points[i]
+        ]
+        y = [
+            point[1] 
+            for point in image_points[i]
+        ]
+
+        axs[i].scatter(x, y)
+        axs[i].set_title(titles[i])
+
 def plot_point_path(images, point_masks, points, titles = None, cmap=cm.get_cmap("Greys")):
     rows = int(np.sqrt(len(images)))
     cols = int(np.ceil(len(images) / rows))
@@ -86,8 +115,8 @@ def plot_point_path(images, point_masks, points, titles = None, cmap=cm.get_cmap
         x = np.where(point_masks[i])[1]
         y = np.where(point_masks[i])[0]
         axs[i].scatter(x, y)
-        x = [point[1] for point in points[i]]
-        y = [point[0] for point in points[i]]
+        x = [point[0] for point in points[i]]
+        y = [point[1] for point in points[i]]
 
         segments = len(x)-1
         colors_arr = np.linspace(0,1,segments)**2
