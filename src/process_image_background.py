@@ -374,7 +374,20 @@ def get_ordered_image_points(image, windowsize=10 ,sobel_size=3, k=0.04, harris_
 
     return (True, sorted_point_list, corner_mask)
 
+def get_undistored_k_matrix(image, k, d):
+    h,  w = image.shape[:2]
+    newcameramtx, roi = cv2.getOptimalNewCameraMatrix(k, d, (w,h), 1, (w,h))
 
+    return newcameramtx, roi
+
+def undistort(image, k, d, k_adj, roi):
+    # undistort
+    undst = cv2.undistort(image, k, d, None, k_adj)
+    # crop the image
+    x, y, w, h = roi
+    undst = undst[y:y+h, x:x+w]
+
+    return undst
 
 if __name__=="__main__":
 

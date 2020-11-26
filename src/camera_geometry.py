@@ -2,39 +2,41 @@ import numpy as np
 import utils.file_io_utils as io
 import utils.linalg_utils as linalg
 import utils.plt_utils as plt_utils
-from process_image_background import get_ordered_image_points
+from process_image_background import get_ordered_image_points, get_undistored_k_matrix, undistort
 import cv2
 import matplotlib.pyplot as plt
+from scipy.optimize import minimize
 
 def get_world_points(length, width, square_size):
-    xmax = length*square_size/2
-    ymax = width*square_size/2
+    xmax = square_size*(length-1)
+    ymax = square_size*(width-1)
+    a = square_size
     # in each cluster, extreme corner comes first with clockwise ordering
     return [
         # top left corner cluster
-        np.array([-xmax,                ymax,               1]),
-        np.array([-xmax+square_size,    ymax,               1]),
-        np.array([-xmax+square_size,    ymax-square_size,   1]),
-        np.array([-xmax,                ymax-square_size,   1]),
+        np.array([0,        ymax,       0,      1]).reshape(4,1),
+        np.array([a,        ymax,       0,      1]).reshape(4,1),
+        np.array([a,        ymax-a,     0,      1]).reshape(4,1),
+        np.array([0,        ymax-a,     0,      1]).reshape(4,1),
         # top right corner cluster
-        np.array([xmax,                 ymax,               1]),
-        np.array([xmax,                 ymax-square_size,   1]),
-        np.array([xmax-square_size,     ymax-square_size,   1]),
-        np.array([xmax-square_size,     ymax,               1]),
+        np.array([xmax,     ymax,       0,      1]).reshape(4,1),
+        np.array([xmax,     ymax-a,     0,      1]).reshape(4,1),
+        np.array([xmax-a,   ymax-a,     0,      1]).reshape(4,1),
+        np.array([xmax-a,   ymax,       0,      1]).reshape(4,1),
         # bottom right corner cluster
-        np.array([xmax,                 -ymax,              1]),
-        np.array([xmax-square_size,     -ymax,              1]),
-        np.array([xmax-square_size,     -ymax+square_size,  1]),
-        np.array([xmax,                 -ymax+square_size,  1]),
+        np.array([xmax,     0,          0,      1]).reshape(4,1),
+        np.array([xmax-a,   0,          0,      1]).reshape(4,1),
+        np.array([xmax-a,   a,          0,      1]).reshape(4,1),
+        np.array([xmax,     a,          0,      1]).reshape(4,1),
         # bottom left corner cluster
-        np.array([-xmax,                -ymax,              1]),
-        np.array([-xmax,                -ymax+square_size,  1]),
-        np.array([-xmax+square_size,    -ymax+square_size,  1]),
-        np.array([-xmax+square_size,    -ymax,              1])
+        np.array([0,        0,          0,      1]).reshape(4,1),
+        np.array([0,        a,          0,      1]).reshape(4,1),
+        np.array([a,        a,          0,      1]).reshape(4,1),
+        np.array([a,        0,          0,      1]).reshape(4,1)
     ]
 
 def get_single_worldpoint_matrix(world_point, camera_mat):
-    x, y, z = tuple(world_point)
+    x, y = world_point[:2, 0]
     
     # remove z cols since they become linearly dependent. solve for later
     A = np.array([
@@ -45,39 +47,9 @@ def get_single_worldpoint_matrix(world_point, camera_mat):
 
     return camera_mat @ A
 
-def get_worldpoint_lin_sys_matrix(world_points, camera_mat):
-    '''
-    for a given worldpoint, matrix is
-    |x, y, z, 1, 0, 0, 0, 0, 0, 0, 0, 0| -> row1
-    |0, 0, 0, 0, x, y, z, 1, 0, 0, 0, 0| -> row2
-    |0, 0, 0, 0, 0, 0, 0, 0, x, y, z, 1| -> row3
-    '''
-
-    # for each world point, generate the matrix
-    matrices = tuple(
-        get_single_worldpoint_matrix(point, camera_mat)
-        for point in world_points
-    )
-
-    return np.concatenate(matrices, axis=0)
-
-def get_image_points_vector(image_points):
-    '''
-    to match format of worldpoint_lin_sys_matrix,
-    column vector with len(image_points)*3 elements
-    each 3 elements correspond to a single point in homogeneous coordinates: [x, y, 1]
-    '''
-
-    point_vecs = tuple(
-        np.array([point[0], point[1], 1]).reshape(3, 1)
-        for point in image_points
-    )
-
-    return np.concatenate(point_vecs, axis=0)
-
-def reconstruct_geo_mat_from_partial_mat(partial_mat):
+def extract_params_from_partial_extrinsic_mat(partial_mat):
     partial_rot_mat = partial_mat[:, 0:2]
-    trans_mat = partial_mat[:, 2].reshape(3, 1)
+    t1, t2, t3 = partial_mat[:, 2]
 
     # matrix is scaled. Find scaling factor by checking square sum of column 1 (original should be 1)
     col_square_sum = np.sum(partial_rot_mat[:, 0]**2)
@@ -94,58 +66,92 @@ def reconstruct_geo_mat_from_partial_mat(partial_mat):
     # R32 = cos(beta)sin(gamma)
     gamma = np.arcsin(normalized_partial_rot_mat[2, 1] / np.cos(beta))
 
-    # construct column 3
-    col3 = np.array([
-        [np.cos(alpha)*np.sin(beta)*np.cos(gamma) + np.sin(alpha)*np.sin(gamma)],
-        [np.sin(alpha)*np.sin(beta)*np.cos(gamma) - np.cos(alpha)*np.sin(gamma)],
-        [np.cos(beta)*np.cos(gamma)],
-    ])
+    return np.array([alpha, beta, gamma, t1, t2, t3])
 
-    # Denormalize column 3
-    col3 *= scale_factor
+def reconstruct_extrinsic_matrix_from_parameters(extrinsic_params):
+    # construct transformation matrix
+    alpha, beta, gamma = extrinsic_params[0:3]
+    
+    t = extrinsic_params[3:6].reshape(3,1)
+    R = linalg.rotation_mat_3D(alpha, beta, gamma)
+    
+    return np.concatenate((R, t), axis=1)
 
-    print(scale_factor, alpha, beta, gamma)
+def minimizer(func, starting_params, args=()):
+    '''
+    @brief Implements nelder mead optimization on the given function
 
-    return np.concatenate((partial_rot_mat, col3, trans_mat), axis=1)
+    For more details on the implementation, visit
+    https://github.com/ubc-subbots/sound-localization-simulator/blob/master/docs/Position_Calculation_Algorithms.pdf
 
-def get_camera_extrinsic_matrix(image_points, camera_mat, length=9, width=6, square_size=1.9):
+    @param func             The function needing to be minimized
+    @param starting_params  The initial guess for the function parameters that will result
+                            in the function being minimized. The function expects this to
+                            be inputted as a numpy array
+    @param args             A tuple containing any other arguments that should be inputted
+                            to the function (constants, non-numerical parameters, etc.)
+    @return                 A numpy array containing the value of arguments that will minimize 
+                            func
+    '''
+    results = minimize(func, starting_params, args=args)
+
+    if (not results.success):
+        print(results.message)
+
+    print("initial guess: ", starting_params)
+    print("sum of squares: ", func(starting_params, *args))
+    print("Converged with %d iterations" %results.nit)
+    print("results: ", results.x)
+    print("sum of squares: ", func(results.x, *args))
+
+    return results.x
+
+def get_squared_error_sum(extrinsic_params, k, world_points, image_points):
+    G = reconstruct_extrinsic_matrix_from_parameters(extrinsic_params)
+
+    # projection matrix
+    P = (k @ G)
+
+    expected_image_points = [
+        P @ world_point
+        for world_point in world_points
+    ]
+
+    # convert from homogeneous coordinates
+    expected_image_points = [
+        point[:2,0] / point[2]
+        for point in expected_image_points
+    ]
+
+    squared_error = [
+        linalg.get_euclidean_distance(expected_image_point, image_point)**2
+        for (expected_image_point, image_point) in zip(expected_image_points, image_points)
+    ]
+
+    return sum(squared_error)
+
+def get_camera_extrinsic_matrix_nls(image_points, camera_mat, length=9, width=6, square_size=1.9):
     world_points = get_world_points(length, width, square_size)
 
-    # camera position and orientation vector can be rearranged as A@camera_extrinsics_matrix.reshape(1,12)
-    # here, columns related to Z are ommitted since they are linearly dependent (chessboard points lie on a plane)
-    # need to later use the rotation coeffcients R[0:2, :] to retrieve R[3,:]
-    A = get_worldpoint_lin_sys_matrix(world_points, camera_mat)
+    # use nelder mead to minimize squared error sum
+    args = (camera_mat, world_points, image_points)
+    # initial_guess = get_initial_params(world_points, image_points, camera_mat)
+    initial_guess = np.array([0, 0, 0, 0, 0, 30])
 
-    # generate image_points vector
-    image_points_vector = get_image_points_vector(image_points)
+    params = minimizer(get_squared_error_sum, initial_guess, args=args)
 
-    # calculate partial (missing 3rd column due to Z omission) extrinsic camera matrix using least squares solution
-    pseudo_inverse = linalg.pseudo_inv(A)
-    partial_mat = (pseudo_inverse @ image_points_vector).reshape(3,3)
-
-    # construct 3rd column from known elements
-    return reconstruct_geo_mat_from_partial_mat(partial_mat)
-
+    return reconstruct_extrinsic_matrix_from_parameters(params)
 
 if __name__=="__main__":
     camera_calib = "SamsungGalaxyA8"
-    length = 9
-    width = 6
-    square_size = 1.9
     
-    # first, grab camera matrix
+    # first, grab camera and distortion matrices
     k, d = io.load_calib_coefficients(camera_calib)
-
-    print(k)
-
-    world_points = get_world_points(length, width, square_size)
-
-    A = get_worldpoint_lin_sys_matrix(world_points, k)
 
     # generate image points
     images = io.load_object_images("monkey_thing")
-    # good_indices = [0, 2, 4, 5, 7, 10, 11]
-    good_indices = [0, 2]
+    good_indices = [0, 2, 4, 5, 7, 10, 11]
+    # good_indices = [0, 2]
     images = [
         images[i] 
         for i in good_indices
@@ -155,6 +161,28 @@ if __name__=="__main__":
         for image in images
     ]
     plt_utils.show_images(*images)
+
+    #########################
+    # undistort images
+    #########################
+    undistort_tuples = [
+        get_undistored_k_matrix(image, k, d)
+        for image in images
+    ]
+
+    k_mats, rois = zip(*undistort_tuples)
+
+    print(k_mats)
+
+    images = [
+        undistort(image, k, d, k_adj, roi)
+        for (image, k_adj, roi) in zip(images, k_mats, rois)
+    ]
+
+    plt_utils.show_images(*images)
+    #########################
+    # find image points
+    #########################
 
     windowsize=10
     sobel_size=3
@@ -167,20 +195,16 @@ if __name__=="__main__":
         for image in images
     ]
 
-    is_valids = [
-        ret_tuple[0]
-        for ret_tuple in ret_tuples
-    ]
+    is_valids, image_points, corners = zip(*ret_tuples)
 
     image_points = [
-        ret_tuple[1]
-        for (ret_tuple, is_valid) in zip(ret_tuples, is_valids)
-        if is_valid
+        points
+        for (points, is_valid) in zip(image_points, is_valids)
+        if is_valids
     ]
-
     corners = [
-        ret_tuple[2]
-        for (ret_tuple, is_valid) in zip(ret_tuples, is_valids)
+        corner
+        for (corner, is_valid) in zip(corners, is_valids)
         if is_valid
     ]
     
@@ -190,28 +214,29 @@ if __name__=="__main__":
         if is_valid
     ]
 
-    image_points_vectors = [
-        get_image_points_vector(points)
-        for points in image_points
-    ]
-
     plt_utils.plot_image_points(images, image_points)
 
+    #########################
+    # get extrinsic camera params
+    #########################
+    
+    length = 9
+    width = 6
+    square_size = 1.9
     G_mats = [
-        get_camera_extrinsic_matrix(points, k)
-        for points in image_points
+        get_camera_extrinsic_matrix_nls(points, k_mat, length=length, width=width, square_size=square_size)
+        for (points, k_mat) in zip(image_points, k_mats)
     ]
 
     print(G_mats)
 
+    #########################
     # compare re-projection
-    length = 9
-    width = 6
-    square_size = 1.9
+    #########################
     chessboard_points = [
         np.array([
-            i*square_size - length*square_size/2,
-            j*square_size - width*square_size/2,
+            i*square_size,
+            j*square_size,
             0,
             1
         ]).reshape(4,1)
@@ -221,10 +246,19 @@ if __name__=="__main__":
 
     projections = [
         [
-            k @ G @ vec
+            k_mat @ G @ vec
             for vec in chessboard_points
         ]
-        for G in G_mats 
+        for (k_mat, G) in zip(k_mats, G_mats) 
+    ]
+
+    # re-normalize
+    projections = [
+        [
+            point[:2,0] / point[2]
+            for point in points
+        ]
+        for points in projections
     ]
 
     plt_utils.plot_image_points(images, projections)

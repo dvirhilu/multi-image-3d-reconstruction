@@ -86,3 +86,20 @@ def pseudo_inv(A):
     inv_gramian = inv(gramian)
 
     return inv_gramian @ A.T
+
+def rotation_mat_3D(alpha, beta, gamma):
+    r11 = np.cos(alpha)*np.cos(beta)
+    r12 = np.cos(alpha)*np.sin(beta)*np.sin(gamma) - np.sin(alpha)*np.cos(gamma)
+    r13 = np.cos(alpha)*np.sin(beta)*np.cos(gamma) + np.sin(alpha)*np.sin(gamma)
+    r21 = np.sin(alpha)*np.cos(beta)
+    r22 = np.sin(alpha)*np.sin(beta)*np.sin(gamma) + np.cos(alpha)*np.cos(gamma)
+    r23 = np.sin(alpha)*np.sin(beta)*np.cos(gamma) - np.cos(alpha)*np.sin(gamma)
+    r31 = -np.sin(beta)
+    r32 = np.cos(beta)*np.sin(gamma)
+    r33 = np.cos(beta)*np.cos(gamma)
+
+    return np.array([
+        [r11, r12, r13],
+        [r21, r22, r23],
+        [r31, r32, r33]
+    ])
