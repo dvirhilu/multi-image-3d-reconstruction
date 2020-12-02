@@ -9,7 +9,7 @@ def show_image(image, title=None, cmap=cm.get_cmap("Greys")):
         plt.title(title)
 
 
-def show_images(*images, titles = None, cmap=cm.get_cmap("Greys")):
+def show_images(*images, titles = None, cmap=cm.get_cmap("Greys"), sup_title = None):
     rows = int(np.sqrt(len(images)))
     cols = int(np.ceil(len(images) / rows))
 
@@ -22,12 +22,15 @@ def show_images(*images, titles = None, cmap=cm.get_cmap("Greys")):
     print("Plotting", rows, "rows and", cols, "columns")
     
     f, axs = plt.subplots(rows, cols)
+    if sup_title:
+        f.suptitle(sup_title)
+    
     axs = axs.flatten()
     for i in range(len(images)):
         axs[i].imshow(images[i], cmap=cmap)
         axs[i].set_title(titles[i])
 
-def plt_histograms(*hists, titles=None):
+def plt_histograms(*hists, titles=None, sup_title = None):
     rows = int(np.sqrt(len(hists)))
     cols = int(np.ceil(len(hists) / rows))
 
@@ -40,13 +43,16 @@ def plt_histograms(*hists, titles=None):
     print("Plotting", rows, "rows and", cols, "columns")
     
     f, axs = plt.subplots(rows, cols)
+    if sup_title:
+        f.suptitle(sup_title)
+    
     axs = axs.flatten()
     for i in range(len(hists)):
         bins_num = int(max(hists[i]) - min(hists[i]))
         axs[i].hist(hists[i], bins=bins_num, histtype='step')
         axs[i].set_title(titles[i])
         
-def plot_corner_points(images, corners, titles = None, cmap=cm.get_cmap("Greys")):
+def plot_corner_points(images, corners, titles = None, cmap=cm.get_cmap("Greys"), sup_title = None):
     rows = int(np.sqrt(len(images)))
     cols = int(np.ceil(len(images) / rows))
 
@@ -59,6 +65,9 @@ def plot_corner_points(images, corners, titles = None, cmap=cm.get_cmap("Greys")
     print("Plotting", rows, "rows and", cols, "columns")
     
     f, axs = plt.subplots(rows, cols)
+    if sup_title:
+        f.suptitle(sup_title)
+    
     axs = axs.flatten()
     for i in range(len(images)):
         axs[i].imshow(images[i], cmap=cmap)
@@ -67,7 +76,7 @@ def plot_corner_points(images, corners, titles = None, cmap=cm.get_cmap("Greys")
         axs[i].scatter(x, y)
         axs[i].set_title(titles[i])
 
-def plot_image_points(images, image_points, titles = None, cmap=cm.get_cmap("Greys")):
+def plot_image_points(images, image_points, titles = None, cmap=cm.get_cmap("Greys"), sup_title = None):
     rows = int(np.sqrt(len(images)))
     cols = int(np.ceil(len(images) / rows))
 
@@ -80,6 +89,9 @@ def plot_image_points(images, image_points, titles = None, cmap=cm.get_cmap("Gre
     print("Plotting", rows, "rows and", cols, "columns")
     
     f, axs = plt.subplots(rows, cols)
+    if sup_title:
+        f.suptitle(sup_title)
+    
     axs = axs.flatten()
     for i in range(len(images)):
         axs[i].imshow(images[i], cmap=cmap)
@@ -96,7 +108,7 @@ def plot_image_points(images, image_points, titles = None, cmap=cm.get_cmap("Gre
         axs[i].scatter(x, y)
         axs[i].set_title(titles[i])
 
-def plot_point_path(images, point_masks, points, titles = None, cmap=cm.get_cmap("Greys")):
+def plot_point_path(images, point_masks, points, titles = None, cmap=cm.get_cmap("Greys"), sup_title = None):
     rows = int(np.sqrt(len(images)))
     cols = int(np.ceil(len(images) / rows))
 
@@ -109,6 +121,9 @@ def plot_point_path(images, point_masks, points, titles = None, cmap=cm.get_cmap
     print("Plotting", rows, "rows and", cols, "columns")
     
     f, axs = plt.subplots(rows, cols)
+    if sup_title:
+        f.suptitle(sup_title)
+    
     axs = axs.flatten()
     for i in range(len(images)):
         axs[i].imshow(images[i], cmap=cmap)

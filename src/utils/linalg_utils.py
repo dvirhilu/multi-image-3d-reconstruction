@@ -1,5 +1,5 @@
 import numpy as np
-from scipy.linalg import norm, inv
+from scipy.linalg import norm, inv, eig
 
 ##################################
 # Coordinate System Conversions
@@ -81,9 +81,12 @@ def cross_2d(vec1, vec2):
 # Matrix Operations
 ##################################(
 
+def gramian(A):
+    return A.T @ A
+
 def pseudo_inv(A):
-    gramian = A.T @ A
-    inv_gramian = inv(gramian)
+    gramian_mat = gramian(A)
+    inv_gramian = inv(gramian_mat)
 
     return inv_gramian @ A.T
 
@@ -103,3 +106,12 @@ def rotation_mat_3D(alpha, beta, gamma):
         [r21, r22, r23],
         [r31, r32, r33]
     ])
+
+def solve_homogeneous_least_squares(A):
+    gramian_mat = gramian(A)
+    
+    (w, v) = eig(gramian_mat)
+
+    i_min = np.argmin(w)
+
+    return v[:, i_min]
