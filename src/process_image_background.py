@@ -393,23 +393,50 @@ if __name__=="__main__":
 
     images = file_io_utils.load_object_images("monkey_thing")
     # good_indices = [0, 2, 4, 5, 7, 10, 11]
-    good_indices = [0, 2]
-    images = [
-        images[i] 
-        for i in good_indices
-    ]
+    # good_indices = [0, 2]
+    # images = [
+    #     images[i] 
+    #     for i in good_indices
+    # ]
     images = [
         cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         for image in images
     ]
-    plt_utils.show_images(*images)
 
+    titles = [
+        "image %0d" % i
+        for i in range(len(images))
+    ]
+
+    plt_utils.show_images(*images, titles=titles, sup_title="Original Image Set")
     windowsize=10
     sobel_size=3
     k=0.04
     harris_threshold=0.1
     r=15
     p=0.4
+
+    corners = [
+        apply_harris_corner_filter(image, windowsize=windowsize, sobel_size=sobel_size, k=k, p=harris_threshold)
+        for image in images[:3]
+    ]
+
+    plt_utils.plot_corner_points(images[:3], corners, titles=titles[:3], sup_title="Harris Corners")
+
+    corners = [
+        squish_cluster_2_centroid(corner_mask)
+        for corner_mask in corners
+    ]
+
+    plt_utils.plot_corner_points(images[:3], corners, titles=titles[:3], sup_title="Squished Harris Corners")
+
+    corners = [
+        filter_corner_centrosymmetry(image, corner_mask, r, p)
+        for (corner_mask, image) in zip(corners, images[:3])
+    ]
+
+    plt_utils.plot_corner_points(images[:3], corners, titles=titles[:3], sup_title="Centrosymmetry Filter")
+
     ret_tuples = [
         get_ordered_image_points(image, windowsize=windowsize, sobel_size=sobel_size, k=k, harris_threshold=harris_threshold, r=r, p=p)
         for image in images
@@ -439,10 +466,17 @@ if __name__=="__main__":
         if is_valid
     ]
 
+    titles = [
+        title
+        for (title, is_valid) in zip(titles, is_valids)
+        if is_valid
+    ]
+
+
     print(len(corners), len(image_points), np.shape(ret_tuples), np.shape(is_valids))
 
     # show desired corners
-    plt_utils.plot_point_path(images, corners, image_points)
-    plt_utils.plot_image_points(images, image_points)
+    plt_utils.plot_point_path(images, corners, image_points, titles=titles, sup_title="Corner Point Sequence")
+    plt_utils.plot_image_points(images, image_points, titles=titles, sup_title="Final Corner Points")
     
     plt.show()

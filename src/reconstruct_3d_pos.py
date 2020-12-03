@@ -69,6 +69,11 @@ if __name__=="__main__":
         images[i] 
         for i in good_indices
     ]
+    titles = [
+        "Image %0d" %i
+        for i in good_indices
+    ]
+
     images = [
         cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         for image in images
@@ -191,7 +196,7 @@ if __name__=="__main__":
         for points in projections
     ]
 
-    plt_utils.plot_image_points(images, projections)
+    plt_utils.plot_image_points(images, projections, titles=titles, sup_title="Reconstructed 3D Points Reprojections")
 
     # Compare reprojections
     projections = [

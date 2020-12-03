@@ -90,6 +90,13 @@ def pseudo_inv(A):
 
     return inv_gramian @ A.T
 
+def skew_sym(a):
+    return np.array([
+        [0,     -a[2],  a[1]],
+        [a[2],  0,      -a[0]],
+        [-a[1], a[0],   0]
+    ])
+
 def rotation_mat_3D(alpha, beta, gamma):
     r11 = np.cos(alpha)*np.cos(beta)
     r12 = np.cos(alpha)*np.sin(beta)*np.sin(gamma) - np.sin(alpha)*np.cos(gamma)

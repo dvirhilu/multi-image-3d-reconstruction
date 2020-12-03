@@ -124,6 +124,17 @@ def group_feature_matches(feature_lists):
     num_lists = len(feature_lists)
     for i in range(num_lists):
         for feature in feature_lists[i]:
+            # delete all features in the group from their feature lists
+            # this is done in order to not repeat groups
+            # skip last element since it is the current feature
+            already_matched = any(
+                feature in group
+                for group in feature_groups
+            )
+
+            if already_matched:
+                continue
+
             # first, get all feature lists except current one
             other_lists = [
                 feature_lists[j]
@@ -138,18 +149,11 @@ def group_feature_matches(feature_lists):
             if len(group) == 1:
                 continue
 
-            # delete all features in the group from their feature lists
-            # this is done in order to not repeat groups
-            # skip last element since it is the current feature
-            for match in group[:-1]:
-                index = match.image_idx
-                feature_lists[index].remove(match)
 
             # append group to group list
             feature_groups.append(group)
 
     return feature_groups
-
 
 
 if __name__=="__main__":
@@ -160,11 +164,16 @@ if __name__=="__main__":
 
     # generate image points
     images = io.load_object_images("monkey_thing")
-    good_indices = [0, 2, 4, 5, 7, 10, 11]
+    good_indices = [0, 2, 4, 7]
     # good_indices = [0, 2]
     
     images = [
         images[i] 
+        for i in good_indices
+    ]
+
+    titles = [
+        "Image %0d" %i
         for i in good_indices
     ]
     
@@ -227,7 +236,7 @@ if __name__=="__main__":
         if is_valid
     ]
 
-    plt_utils.plot_image_points(im_gray, image_points, sup_title="Chessboard Corners")
+    # plt_utils.plot_image_points(im_gray, image_points, sup_title="Chessboard Corners")
 
     #########################
     # Match Key Features
@@ -246,7 +255,7 @@ if __name__=="__main__":
         for image in images[:]
     ]
 
-    plt_utils.show_images(*kp_images, sup_title="SIFT Keypoints")
+    plt_utils.show_images(*kp_images, titles=titles, sup_title="SIFT Keypoints")
 
     # get features
     features = [
@@ -271,17 +280,26 @@ if __name__=="__main__":
 
     print(len(feature_groups))
 
+    print("lengths")
+    for group in feature_groups[190:197]:
+        print(len(group))
+        print([feature.image_idx for feature in group])
+        print([feature.pixel_location for feature in group])
+
     point_list = []
     for i in range(len(im_gray)):
-        points = [
-            feature.pixel_location
-            for group in feature_groups[50:52]
-            for feature in group
-            if feature.image_idx == i
-        ]
-
+        points = []
+        for group in feature_groups[190:200]:
+            added = False
+            for feature in group:
+                if feature.image_idx == i:
+                    points.append(feature.pixel_location)
+                    added = True
+            if not added:
+                points.append(None)
+        print(len(points))
         point_list.append(points)
 
-    plt_utils.plot_image_points(im_gray, point_list, sup_title="Matched Features")
+    plt_utils.plot_image_points(im_gray, point_list, sup_title="Matched Features", same_colour=False)
 
     plt.show()

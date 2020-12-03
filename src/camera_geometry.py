@@ -142,6 +142,27 @@ def get_camera_extrinsic_matrix_nls(image_points, camera_mat, length=9, width=6,
 
     return reconstruct_extrinsic_matrix_from_parameters(params)
 
+def compute_fundemental_matrix(K1, K2, G1, G2):
+    # compute camera matrices
+    P1 = K1 @ G1
+    P2 = K2 @ G2
+
+    # compute second epipole
+    R1 = G1[:, 0:3]
+    T1 = G1[:, 3].reshape(3,1)
+    C1 = -R1.T @ T1
+    C1 = np.append(C1, 1).reshape(4,1)
+    e2 = P2 @ C1
+
+    print(C1)
+    print(e2)
+
+    # compute fundemental matrix components
+    P1_inv = linalg.pseudo_inv(P1)
+    e2_skew = linalg.skew_sym(e2.flatten())
+
+    return e2_skew @ P2 @ P1_inv
+
 if __name__=="__main__":
     camera_calib = "SamsungGalaxyA8"
     
@@ -156,6 +177,11 @@ if __name__=="__main__":
         images[i] 
         for i in good_indices
     ]
+    titles = [
+        "Image %0d" %i
+        for i in good_indices
+    ]
+
     images = [
         cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         for image in images
@@ -214,7 +240,7 @@ if __name__=="__main__":
         if is_valid
     ]
 
-    plt_utils.plot_image_points(images, image_points)
+    plt_utils.plot_image_points(images, image_points, titles=titles, sup_title="Image Chessboard Points - Valid Only")
 
     #########################
     # get extrinsic camera params
@@ -261,6 +287,49 @@ if __name__=="__main__":
         for points in projections
     ]
 
-    plt_utils.plot_image_points(images, projections)
+    plt_utils.plot_image_points(images, projections, titles=titles, sup_title="True Chessboard Points Projected Onto Images")
+
+    ###################### test fundemental matrix ######################################
+    images = images[:2]
+    K1 = k_mats[0]
+    K2 = k_mats[1]
+    G1 = G_mats[0]
+    G2 = G_mats[1]
+
+    F = compute_fundemental_matrix(K1, K2, G1, G2)
+
+    image_points = [
+        [
+            point
+            for point in points[:2]
+        ]
+        for points in image_points[:2]
+    ]
+
+    point_vecs = [
+        np.append(point, 1).reshape(3,1)
+        for point in image_points[1]
+    ]
+
+    projective_lines = [
+        F @ point_vec
+        for point_vec in point_vecs
+    ]
+
+    plt_utils.plot_image_points(images, image_points)
+
+    x  = np.linspace(0, images[0].shape[1], 20)
+
+    l1 = projective_lines[0]
+    l2 = projective_lines[1]
+
+    print(l1)
+    print(l2)
+
+    y1 = -x*l1[0]/l1[1] - l1[2]/l1[1] 
+    y2 = -x*l2[0]/l2[1] - l2[2]/l2[1]
+
+    plt.plot(x,y1) 
+    plt.plot(x,y2) 
 
     plt.show()
