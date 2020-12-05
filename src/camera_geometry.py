@@ -93,7 +93,7 @@ def minimizer(func, starting_params, args=()):
     @return                 A numpy array containing the value of arguments that will minimize 
                             func
     '''
-    results = minimize(func, starting_params, args=args)
+    results = minimize(func, starting_params, args=args, method="Powell")
 
     if (not results.success):
         print(results.message)
@@ -170,16 +170,16 @@ if __name__=="__main__":
     k, d = io.load_calib_coefficients(camera_calib)
 
     # generate image points
-    images = io.load_object_images("monkey_thing")
-    good_indices = [0, 2, 4, 5, 7, 10, 11]
+    images = io.load_object_images("eraser")
+    # good_indices = [0, 2, 4, 5, 7, 10, 11]
     # good_indices = [0, 2]
-    images = [
-        images[i] 
-        for i in good_indices
-    ]
+    # images = [
+    #     images[i] 
+    #     for i in good_indices
+    # ]
     titles = [
         "Image %0d" %i
-        for i in good_indices
+        for i in range(len(images))
     ]
 
     images = [
@@ -214,10 +214,11 @@ if __name__=="__main__":
     sobel_size=3
     harris_const=0.04
     harris_threshold=0.1
-    r=15
-    p=0.4
+    r=40
+    p=0.5
+    d = 150
     ret_tuples = [
-        get_ordered_image_points(image, windowsize=windowsize, sobel_size=sobel_size, k=harris_const, harris_threshold=harris_threshold, r=r, p=p)
+        get_ordered_image_points(image, windowsize=windowsize, sobel_size=sobel_size, k=harris_const, harris_threshold=harris_threshold, r=r, p=p, d=d)
         for image in images
     ]
 
@@ -240,7 +241,8 @@ if __name__=="__main__":
         if is_valid
     ]
 
-    plt_utils.plot_image_points(images, image_points, titles=titles, sup_title="Image Chessboard Points - Valid Only")
+    plt_utils.plot_image_points(images, image_points, titles=titles, sup_title="Image Chessboard Points")
+    plt_utils.plot_point_path(images, corners, image_points, titles=titles, sup_title="Corner Point Sequence")
 
     #########################
     # get extrinsic camera params
@@ -259,16 +261,7 @@ if __name__=="__main__":
     #########################
     # compare re-projection
     #########################
-    chessboard_points = [
-        np.array([
-            i*square_size,
-            j*square_size,
-            0,
-            1
-        ]).reshape(4,1)
-        for i in range(length)
-        for j in range(width)
-    ]
+    chessboard_points = get_world_points(length, width, square_size)
 
     projections = [
         [
@@ -287,49 +280,83 @@ if __name__=="__main__":
         for points in projections
     ]
 
-    plt_utils.plot_image_points(images, projections, titles=titles, sup_title="True Chessboard Points Projected Onto Images")
+    plt_utils.plot_image_points(images[5:7], projections[5:7], titles=titles[5:7], sup_title="True Chessboard Points Projected Onto Images", same_colour=False)
 
-    ###################### test fundemental matrix ######################################
-    images = images[:2]
-    K1 = k_mats[0]
-    K2 = k_mats[1]
-    G1 = G_mats[0]
-    G2 = G_mats[1]
-
-    F = compute_fundemental_matrix(K1, K2, G1, G2)
-
-    image_points = [
-        [
-            point
-            for point in points[:2]
-        ]
-        for points in image_points[:2]
+    #########################
+    # error analysis
+    #########################
+    MAE = [
+        np.mean([
+            linalg.get_euclidean_distance(proj, point)
+            for (proj, point) in zip(proj_points, img_points)
+        ])
+        for (proj_points, img_points) in zip(projections, image_points)
     ]
 
-    point_vecs = [
-        np.append(point, 1).reshape(3,1)
-        for point in image_points[1]
+    max_err = [
+        np.max([
+            linalg.get_euclidean_distance(proj, point)
+            for (proj, point) in zip(proj_points, img_points)
+        ])
+        for (proj_points, img_points) in zip(projections, image_points)
     ]
 
-    projective_lines = [
-        F @ point_vec
-        for point_vec in point_vecs
-    ]
+    for (proj, point) in zip(projections[13], image_points[13]):
+        print(proj, point)
 
-    plt_utils.plot_image_points(images, image_points)
+    plt.figure()
+    plt.bar(range(len(images)), MAE)
+    plt.xlabel("Image Index")
+    plt.ylabel("Mean Absolute Error (pixels)")
+    plt.title("Projection Mean Absolute Error")
 
-    x  = np.linspace(0, images[0].shape[1], 20)
+    plt.figure()
+    plt.bar(range(len(images)), max_err)
+    plt.xlabel("Image Index")
+    plt.ylabel("Maximum Absolute Error (pixels)")
+    plt.title("Projection Maximum Absolute Error")
 
-    l1 = projective_lines[0]
-    l2 = projective_lines[1]
+    # ###################### test fundemental matrix ######################################
+    # images = images[:2]
+    # K1 = k_mats[0]
+    # K2 = k_mats[1]
+    # G1 = G_mats[0]
+    # G2 = G_mats[1]
 
-    print(l1)
-    print(l2)
+    # F = compute_fundemental_matrix(K1, K2, G1, G2)
 
-    y1 = -x*l1[0]/l1[1] - l1[2]/l1[1] 
-    y2 = -x*l2[0]/l2[1] - l2[2]/l2[1]
+    # image_points = [
+    #     [
+    #         point
+    #         for point in points[:2]
+    #     ]
+    #     for points in image_points[:2]
+    # ]
 
-    plt.plot(x,y1) 
-    plt.plot(x,y2) 
+    # point_vecs = [
+    #     np.append(point, 1).reshape(3,1)
+    #     for point in image_points[1]
+    # ]
+
+    # projective_lines = [
+    #     F @ point_vec
+    #     for point_vec in point_vecs
+    # ]
+
+    # plt_utils.plot_image_points(images, image_points)
+
+    # x  = np.linspace(0, images[0].shape[1], 20)
+
+    # l1 = projective_lines[0]
+    # l2 = projective_lines[1]
+
+    # print(l1)
+    # print(l2)
+
+    # y1 = -x*l1[0]/l1[1] - l1[2]/l1[1] 
+    # y2 = -x*l2[0]/l2[1] - l2[2]/l2[1]
+
+    # plt.plot(x,y1) 
+    # plt.plot(x,y2) 
 
     plt.show()

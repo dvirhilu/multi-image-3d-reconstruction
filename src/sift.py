@@ -163,45 +163,42 @@ if __name__=="__main__":
     k, d = io.load_calib_coefficients(camera_calib)
 
     # generate image points
-    images = io.load_object_images("monkey_thing")
-    good_indices = [0, 2, 4, 7]
+    images = io.load_object_images("eraser")
+    # good_indices = [0, 2, 4, 5, 7, 10, 11]
     # good_indices = [0, 2]
-    
-    images = [
-        images[i] 
-        for i in good_indices
-    ]
-
+    # images = [
+    #     images[i] 
+    #     for i in good_indices
+    # ]
     titles = [
         "Image %0d" %i
-        for i in good_indices
-    ]
-    
-    # plt_utils.show_images(*images, sup_title="Original Images")
-
-    #########################
-    # undistort images
-    #########################
-    undistort_tuples = [
-        get_undistored_k_matrix(image, k, d)
-        for image in images
-    ]
-
-    k_mats, rois = zip(*undistort_tuples)
-
-    images = [
-        undistort(image, k, d, k_adj, roi)
-        for (image, k_adj, roi) in zip(images, k_mats, rois)
+        for i in range(len(images))
     ]
 
     im_gray = [
         cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         for image in images
     ]
+    plt_utils.show_images(*images)
 
-    # plt_utils.show_images(*images, sup_title="Undistorted Images")
-    # plt_utils.show_images(*im_gray, sup_title="Undistorted Images, Grayscale")
+    #########################
+    # undistort images
+    #########################
+    undistort_tuples = [
+        get_undistored_k_matrix(image, k, d)
+        for image in im_gray
+    ]
 
+    k_mats, rois = zip(*undistort_tuples)
+
+    print(k_mats)
+
+    images = [
+        undistort(image, k, d, k_adj, roi)
+        for (image, k_adj, roi) in zip(im_gray, k_mats, rois)
+    ]
+
+    plt_utils.show_images(*im_gray)
     #########################
     # find image points
     #########################
@@ -210,10 +207,11 @@ if __name__=="__main__":
     sobel_size=3
     harris_const=0.04
     harris_threshold=0.1
-    r=15
-    p=0.4
+    r=40
+    p=0.5
+    d = 150
     ret_tuples = [
-        get_ordered_image_points(image, windowsize=windowsize, sobel_size=sobel_size, k=harris_const, harris_threshold=harris_threshold, r=r, p=p)
+        get_ordered_image_points(image, windowsize=windowsize, sobel_size=sobel_size, k=harris_const, harris_threshold=harris_threshold, r=r, p=p, d=d)
         for image in im_gray
     ]
 
@@ -230,13 +228,14 @@ if __name__=="__main__":
         if is_valid
     ]
     
-    images = [
+    im_gray = [
         image
         for (image, is_valid) in zip(im_gray, is_valids)
         if is_valid
     ]
 
-    # plt_utils.plot_image_points(im_gray, image_points, sup_title="Chessboard Corners")
+    plt_utils.plot_image_points(im_gray, image_points, titles=titles, sup_title="Image Chessboard Points")
+    plt_utils.plot_point_path(im_gray, corners, image_points, titles=titles, sup_title="Corner Point Sequence")
 
     #########################
     # Match Key Features
@@ -300,6 +299,20 @@ if __name__=="__main__":
         print(len(points))
         point_list.append(points)
 
-    plt_utils.plot_image_points(im_gray, point_list, sup_title="Matched Features", same_colour=False)
+    good_indices = [2, 4, 11, 12]
+    im_gray = [
+        im_gray[i]
+        for i in good_indices
+    ]
+    point_list = [
+        point_list[i]
+        for i in good_indices
+    ]
+    titles = [
+        titles[i]
+        for i in good_indices
+    ]
+
+    plt_utils.plot_image_points(im_gray, point_list, titles=titles, sup_title="Matched Features", same_colour=False)
 
     plt.show()

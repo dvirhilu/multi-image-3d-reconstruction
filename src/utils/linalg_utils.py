@@ -77,6 +77,9 @@ def get_vec_cos_angle(vec1, vec2):
 def cross_2d(vec1, vec2):
     return vec1[0]*vec2[1] - vec1[1]*vec2[0]
 
+def get_vec_sin_angle(vec1, vec2):
+    return cross_2d(vec1, vec2) / (norm(vec1)*norm(vec2))
+
 ##################################
 # Matrix Operations
 ##################################(

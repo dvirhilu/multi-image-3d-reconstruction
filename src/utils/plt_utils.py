@@ -2,14 +2,14 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib import cm
 
-def show_image(image, title=None, cmap=cm.get_cmap("Greys")):
+def show_image(image, title=None, cmap=cm.get_cmap("gray")):
     plt.figure()
     plt.imshow(image, cmap=cmap)
     if title:
         plt.title(title)
 
 
-def show_images(*images, titles = None, cmap=cm.get_cmap("Greys"), sup_title = None):
+def show_images(*images, titles = None, cmap=cm.get_cmap("gray"), sup_title = None):
     rows = int(np.sqrt(len(images)))
     cols = int(np.ceil(len(images) / rows))
 
@@ -52,7 +52,7 @@ def plt_histograms(*hists, titles=None, sup_title = None):
         axs[i].hist(hists[i], bins=bins_num, histtype='step')
         axs[i].set_title(titles[i])
         
-def plot_corner_points(images, corners, titles = None, cmap=cm.get_cmap("Greys"), sup_title = None):
+def plot_corner_points(images, corners, titles = None, cmap=cm.get_cmap("gray"), sup_title = None):
     rows = int(np.sqrt(len(images)))
     cols = int(np.ceil(len(images) / rows))
 
@@ -71,12 +71,14 @@ def plot_corner_points(images, corners, titles = None, cmap=cm.get_cmap("Greys")
     axs = axs.flatten()
     for i in range(len(images)):
         axs[i].imshow(images[i], cmap=cmap)
+        if len(corners[i]) == 0:
+            continue
         x = np.where(corners[i])[1]
         y = np.where(corners[i])[0]
         axs[i].scatter(x, y)
         axs[i].set_title(titles[i])
 
-def plot_image_points(images, image_points, titles = None, cmap=cm.get_cmap("Greys"), sup_title = None, same_colour=True):
+def plot_image_points(images, image_points, titles = None, cmap=cm.get_cmap("gray"), sup_title = None, same_colour=True):
     rows = int(np.sqrt(len(images)))
     cols = int(np.ceil(len(images) / rows))
 
@@ -110,12 +112,12 @@ def plot_image_points(images, image_points, titles = None, cmap=cm.get_cmap("Gre
         else:
             colours = cm.rainbow(np.linspace(0, 1, len(image_points[i])))
             for (point, colour) in zip(image_points[i], colours):
-                if point:
+                if point is not None:
                     axs[i].scatter(point[0], point[1], color=colour)
 
         axs[i].set_title(titles[i])
 
-def plot_point_path(images, point_masks, points, titles = None, cmap=cm.get_cmap("Greys"), sup_title = None):
+def plot_point_path(images, point_masks, points, titles = None, cmap=cm.get_cmap("gray"), sup_title = None):
     rows = int(np.sqrt(len(images)))
     cols = int(np.ceil(len(images) / rows))
 

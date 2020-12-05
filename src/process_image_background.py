@@ -3,8 +3,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.signal import convolve2d
 import utils.plt_utils as plt_utils
-from utils.linalg_utils import get_euclidean_distance, get_vec_cos_angle, cart2d_2_pol, cross_2d, unit_vect
-from functools import reduce
+from utils.linalg_utils import get_euclidean_distance, get_vec_cos_angle, cart2d_2_pol, unit_vect, cross_2d
+from functools import reduce, cmp_to_key
 import utils.file_io_utils as file_io_utils
 
 def apply_harris_corner_filter(image, windowsize=10, sobel_size=3, k=0.04, use_cv=True, p=0.1):
@@ -164,6 +164,36 @@ def partially_averaging_circular_mask(radius, phi_start, phi_end):
     # normalize and return
     return mask / np.sum(mask)
 
+def filter_corner_distance(corner_mask, distance_threshold, num_neighbours):
+    x = np.where(corner_mask)[1]
+    y = np.where(corner_mask)[0]
+
+    corner_indices = [
+        np.array([y_val, x_val])
+        for (y_val, x_val) in zip(y,x)
+    ]
+
+    nearest_neighbours = [
+        find_k_nearest_neighbours(index_pair, corner_indices, num_neighbours)
+        for index_pair in corner_indices
+    ]
+
+    # create copy of amsk to not mutate input
+    outmask = corner_mask[:]
+    # eliminate corners not matching the distance criteria
+    for index_pair, neighbours in zip(corner_indices, nearest_neighbours):
+        distances_above_threshold = [
+            get_euclidean_distance(index_pair, neighbour) > distance_threshold
+            for neighbour in neighbours
+        ]
+
+        above_thresh_exists = reduce(lambda a, b: a or b, distances_above_threshold)
+
+        if above_thresh_exists:
+            outmask[index_pair[0], index_pair[1]] = False
+
+    return outmask
+
 def find_k_nearest_neighbours(point, neighbours, k):
     # copy list to not mutate input
     neighbour_list = neighbours[:]
@@ -240,7 +270,7 @@ def find_threshold_params(distances):
 
     return (r, p, d, t)
 
-def get_desired_chessboard_points(corner_mask, image):
+def get_desired_chessboard_points(corner_mask, image, d):
     x = np.where(corner_mask)[1]
     y = np.where(corner_mask)[0]
 
@@ -249,26 +279,57 @@ def get_desired_chessboard_points(corner_mask, image):
         for (y_val, x_val) in zip(y,x)
     ]
 
-    A_index = np.argmin(x)
-    B_index = np.argmin(y)
-    C_index = np.argmax(x)
-    D_index = np.argmax(y)
+    # case 2 - image is aligned so points are extrema of x-y and x+y
+    # try this approach and see if it fails
+    sum_arr = x + y
+    diff_arr = y - x
+
+    A_index = np.argmin(sum_arr)
+    B_index = np.argmin(diff_arr)
+    C_index = np.argmax(sum_arr)
+    D_index = np.argmax(diff_arr)
 
     A = np.array([y[A_index], x[A_index]])
     B = np.array([y[B_index], x[B_index]])
     C = np.array([y[C_index], x[C_index]])
     D = np.array([y[D_index], x[D_index]])
 
-    # print(A, B, C, D)
-
     sorted_corners_of_interest = sort_corners(image, [A, B, C, D])
-    # print(sorted_corners_of_interest)
+
+    is_succ = True
+    for i in range(len(sorted_corners_of_interest)):
+        for j in range(len(sorted_corners_of_interest)):
+            if i == j:
+                continue
+
+            corner1 = sorted_corners_of_interest[i]
+            corner2 = sorted_corners_of_interest[j]
+
+            if get_euclidean_distance(corner1, corner2) < d:
+                is_succ = False
+
+    print("is successful: ", is_succ)
+
+    if not is_succ:
+        # case 2 - image is tilted so points are extrema of x and y
+
+        A_index = np.argmin(x)
+        B_index = np.argmin(y)
+        C_index = np.argmax(x)
+        D_index = np.argmax(y)
+
+        A = np.array([y[A_index], x[A_index]])
+        B = np.array([y[B_index], x[B_index]])
+        C = np.array([y[C_index], x[C_index]])
+        D = np.array([y[D_index], x[D_index]])
+
+        # check whether this is correct
+        sorted_corners_of_interest = sort_corners(image, [A, B, C, D])
+
 
     sorted_point_list = []
-    # print("neighbours:")
     for corner in sorted_corners_of_interest:
         neighbours = find_k_nearest_neighbours(corner, corner_list, 3)
-        # print(neighbours)
         sorted_point_list += sort_corner_neighbourhood(corner, neighbours)
 
     outmask = np.zeros(corner_mask.shape, dtype=bool)
@@ -277,19 +338,20 @@ def get_desired_chessboard_points(corner_mask, image):
 
     return (sorted_point_list, outmask)
 
+# TODO: change this to be independent of image center
 def sort_corner_neighbourhood(corner_point, corner_neighbourhood):
-    # first, find the first corner in a clockwise direction
-    # last point in the list is the farthest point
-    # the coordinate system has coord1 pointing down and coord2 pointing right -> right handed system
-    diff1 = corner_neighbourhood[0] - corner_point
-    diff2 = corner_neighbourhood[1] - corner_point
+    # sort based on negative sin of the angle (clockwise direction)
+    def comparator(item1, item2):
+        diff1 = item1-corner_point
+        diff2 = item2-corner_point
 
-    is_neighbour_1_clockwise = cross_2d(diff1, diff2) < 0
+        return cross_2d(diff1, diff2)
 
-    if is_neighbour_1_clockwise:
-        return [corner_point, corner_neighbourhood[0], corner_neighbourhood[2], corner_neighbourhood[1]]
-    else:
-        return [corner_point, corner_neighbourhood[1], corner_neighbourhood[2], corner_neighbourhood[0]]
+    corner_neighbourhood.sort(key=cmp_to_key(comparator))
+    corner_neighbourhood.insert(0, corner_point)
+
+    return corner_neighbourhood
+    
 
 def sort_corners(image, corners):
     ab_distance = get_euclidean_distance(corners[0], corners[1])
@@ -348,7 +410,7 @@ def get_subpixel_coordinates(image, point_list, windowsize=10):
     return subpixel_points
 
 
-def get_ordered_image_points(image, windowsize=10 ,sobel_size=3, k=0.04, harris_threshold=0.1, r=15, p=0.4):
+def get_ordered_image_points(image, windowsize=10 ,sobel_size=3, k=0.04, harris_threshold=0.1, r=40, p=0.5, d=150):
 
     # use Harris corner detection to get initial corner distribution
     corner_mask = apply_harris_corner_filter(image, windowsize=windowsize, sobel_size=sobel_size, k=k, p=harris_threshold)
@@ -360,12 +422,15 @@ def get_ordered_image_points(image, windowsize=10 ,sobel_size=3, k=0.04, harris_
     # this will still leave some fake corners on object in the middle, but the middle of the chessboard will be ignored
     corner_mask = filter_corner_centrosymmetry(image, corner_mask, r, p)
 
+    # for presistent fake corners, use a distance filter
+    filter_corner_distance(corner_mask, d, 3)
+
     # if all corners have been filtered out, indicate that corner searching failed in return value
     if np.count_nonzero(corner_mask)==0:
         return (False, None, None)
 
     # since the object points are hard to filter out, only gather corners of the chessboard and 3 nearest neighbours
-    sorted_point_list, corner_mask = get_desired_chessboard_points(corner_mask, image)
+    sorted_point_list, corner_mask = get_desired_chessboard_points(corner_mask, image, d)
 
     # get subpixel location of points
     sorted_point_list = get_subpixel_coordinates(image, sorted_point_list, windowsize=windowsize)
@@ -391,7 +456,7 @@ def undistort(image, k, d, k_adj, roi):
 
 if __name__=="__main__":
 
-    images = file_io_utils.load_object_images("monkey_thing")
+    images = file_io_utils.load_object_images("eraser")
     # good_indices = [0, 2, 4, 5, 7, 10, 11]
     # good_indices = [0, 2]
     # images = [
@@ -413,32 +478,41 @@ if __name__=="__main__":
     sobel_size=3
     k=0.04
     harris_threshold=0.1
-    r=15
-    p=0.4
+    r=40
+    p=0.5
+    d = 150
 
     corners = [
         apply_harris_corner_filter(image, windowsize=windowsize, sobel_size=sobel_size, k=k, p=harris_threshold)
-        for image in images[:3]
+        for image in images[11:13]
     ]
 
-    plt_utils.plot_corner_points(images[:3], corners, titles=titles[:3], sup_title="Harris Corners")
+    plt_utils.plot_corner_points(images[11:13], corners, titles=titles[11:13], sup_title="Harris Corners")
 
     corners = [
         squish_cluster_2_centroid(corner_mask)
         for corner_mask in corners
     ]
 
-    plt_utils.plot_corner_points(images[:3], corners, titles=titles[:3], sup_title="Squished Harris Corners")
+    plt_utils.plot_corner_points(images[11:13], corners, titles=titles[11:13], sup_title="Squished Harris Corners")
 
     corners = [
         filter_corner_centrosymmetry(image, corner_mask, r, p)
-        for (corner_mask, image) in zip(corners, images[:3])
+        for (corner_mask, image) in zip(corners, images[11:13])
     ]
 
-    plt_utils.plot_corner_points(images[:3], corners, titles=titles[:3], sup_title="Centrosymmetry Filter")
+    plt_utils.plot_corner_points(images[11:13], corners, titles=titles[11:13], sup_title="Centrosymmetry Filter")
+
+    corners = [
+        filter_corner_distance(corner_mask, d, 3)
+        for corner_mask in corners
+    ]
+
+    plt_utils.plot_corner_points(images[11:13], corners, titles=titles[11:13], sup_title="Distance Filter")
+    
 
     ret_tuples = [
-        get_ordered_image_points(image, windowsize=windowsize, sobel_size=sobel_size, k=k, harris_threshold=harris_threshold, r=r, p=p)
+        get_ordered_image_points(image, windowsize=windowsize, sobel_size=sobel_size, k=k, harris_threshold=harris_threshold, r=r, p=p, d=d)
         for image in images
     ]
 
@@ -476,7 +550,7 @@ if __name__=="__main__":
     print(len(corners), len(image_points), np.shape(ret_tuples), np.shape(is_valids))
 
     # show desired corners
-    plt_utils.plot_point_path(images, corners, image_points, titles=titles, sup_title="Corner Point Sequence")
-    plt_utils.plot_image_points(images, image_points, titles=titles, sup_title="Final Corner Points")
+    plt_utils.plot_point_path(images[11:13], corners[11:13], image_points[11:13], titles=titles, sup_title="Corner Point Sequence")
+    plt_utils.plot_image_points(images[3:5], image_points[3:5], titles=titles[3:5], sup_title="Final Corner Points", same_colour=False)
     
     plt.show()
