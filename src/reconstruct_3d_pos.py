@@ -9,51 +9,61 @@ from camera_geometry import get_camera_extrinsic_matrix_nls, get_world_points
 import matplotlib.pyplot as plt
 from itertools import combinations
 
-def create_ls_matrix(k_mats, G_mats, image_points):
-    proj_matrices = tuple(
-        k @ G
-        for (k, G) in zip(k_mats, G_mats)
-    )
-
+def create_ls_matrix(proj_mats, image_points):
     x_cross_prod_eqns = np.array([
         point[0]*P[2, :].T - P[0, :].T
-        for (point, P) in zip(image_points, proj_matrices)
+        for (point, P) in zip(image_points, proj_mats)
     ])
 
     y_cross_prod_eqns = np.array([
         point[1]*P[2, :].T - P[1, :].T
-        for (point, P) in zip(image_points, proj_matrices)
+        for (point, P) in zip(image_points, proj_mats)
     ])
 
     return np.concatenate((x_cross_prod_eqns, y_cross_prod_eqns), axis=0)
 
-def reconstruct_3D_points(feature_groups, K_mats, G_mats):
+def reconstruct_3D_points(feature_groups, proj_mats):
     reconsturcted_points = []
     for group in feature_groups:
-        relevant_K_mats = [
-            K_mats[feature.image_idx]
-            for feature in group
-        ]
-        relevant_G_mats = [
-            G_mats[feature.image_idx]
+        relevant_proj_mats = [
+            proj_mats[feature.image_idx]
             for feature in group
         ]
 
         image_points = [
-            feature.pixel_location
+            feature.coordinates
             for feature in group
         ]
 
-        ls_mat = create_ls_matrix(relevant_K_mats, relevant_G_mats, image_points)
+        ls_mat = create_ls_matrix(relevant_proj_mats, image_points)
 
         world_point = linalg.solve_homogeneous_least_squares(ls_mat)
 
         # convert back from homogeneous coordinates
-        world_point = world_point[0:3].reshape(3,1) / world_point[3]
+        world_point = world_point[0:3] / world_point[3]
 
         reconsturcted_points.append(world_point)
 
+    # TODO: filter based on reprojection error
+
     return reconsturcted_points
+
+def compute_mean_reprojection_error(reconstructed_point, feature_group, P_mats):
+    total_error = 0
+    for feature in feature_group:
+        P = P_mats[feature.image_idx]
+        X = np.append(reconstructed_point, [1], axis=0).reshape(4,1)
+        reprojection_homogeneous = P @ X
+        reprojection = reprojection_homogeneous[:2] / reprojection_homogeneous[2]
+        total_error += linalg.get_euclidean_distance(reprojection, feature.coordinates)
+
+    return total_error / len(feature_group)
+
+def compute_reprojection_error_distribution(reconstructed_points, feature_groups, P_mats):
+    return [
+        compute_mean_reprojection_error(point, group, P_mats)
+        for (point, group) in zip(reconstructed_points, feature_groups)
+    ]
 
 if __name__=="__main__":
     camera_calib = "SamsungGalaxyA8"
@@ -164,7 +174,12 @@ if __name__=="__main__":
 
     # print(np.shape(feature_groups))
 
-    reconstructed_points = reconstruct_3D_points(feature_groups, k_mats, G_mats)
+    proj_mats = [
+        K @ G
+        for (K, G) in zip(k_mats, G_mats)
+    ]
+
+    reconstructed_points = reconstruct_3D_points(feature_groups, proj_mats)
 
     #########################
     # error analysis
@@ -214,7 +229,7 @@ if __name__=="__main__":
 
         print(len(reduced_feature_groups[0]))
 
-        reconstructed_points = reconstruct_3D_points(reduced_feature_groups, k_mats, G_mats)
+        reconstructed_points = reconstruct_3D_points(reduced_feature_groups, proj_mats)
 
         abs_error = [
             linalg.get_euclidean_distance(reco, point)
@@ -251,7 +266,7 @@ if __name__=="__main__":
 
     # # print(np.shape(feature_groups))
 
-    # reconstructed_points = reconstruct_3D_points(feature_groups, k_mats, G_mats)
+    # reconstructed_points = reconstruct_3D_points(feature_groups, proj_mats)
 
     # #########################
     # # error analysis

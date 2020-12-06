@@ -308,7 +308,7 @@ def get_desired_chessboard_points(corner_mask, image, d):
             if get_euclidean_distance(corner1, corner2) < d:
                 is_succ = False
 
-    print("is successful: ", is_succ)
+    # print("is successful: ", is_succ)
 
     if not is_succ:
         # case 2 - image is tilted so points are extrema of x and y
@@ -427,7 +427,7 @@ def get_ordered_image_points(image, windowsize=10 ,sobel_size=3, k=0.04, harris_
 
     # if all corners have been filtered out, indicate that corner searching failed in return value
     if np.count_nonzero(corner_mask)==0:
-        return (False, None, None)
+        return (False, None)
 
     # since the object points are hard to filter out, only gather corners of the chessboard and 3 nearest neighbours
     sorted_point_list, corner_mask = get_desired_chessboard_points(corner_mask, image, d)
@@ -437,7 +437,7 @@ def get_ordered_image_points(image, windowsize=10 ,sobel_size=3, k=0.04, harris_
 
     # TODO: create function to automatically check validity of results
 
-    return (True, sorted_point_list, corner_mask)
+    return (True, sorted_point_list)
 
 def get_undistored_k_matrix(image, k, d):
     h,  w = image.shape[:2]

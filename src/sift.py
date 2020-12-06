@@ -10,9 +10,9 @@ from collections import namedtuple
 PRINT = True
 
 class SIFTFeature:
-    def __init__(self, image_idx, pixel_location, descriptor):
+    def __init__(self, image_idx, coordinates, descriptor):
         self.image_idx = image_idx
-        self.pixel_location = pixel_location
+        self.coordinates = coordinates
         self.descriptor = descriptor
 
 Window = namedtuple("Window", "xmin xmax ymin ymax")
@@ -72,7 +72,7 @@ def get_sift_feature_objects(image, image_index, window):
     print(len(feature_list))
     return feature_list
 
-def find_match(feature, feature_list):
+def find_match(feature, feature_list, ratio_threshold=0.7):
     for potential_match in feature_list:
         if potential_match.image_idx != feature_list[0].image_idx:
             raise ValueError("Features must be from the same image")
@@ -90,22 +90,22 @@ def find_match(feature, feature_list):
     # check if match is valid
     min_dist = linalg.get_euclidean_distance(best.descriptor, feature.descriptor)
     next_dist = linalg.get_euclidean_distance(second_best.descriptor, feature.descriptor)
-    valid_match = min_dist / next_dist < 0.7
+    valid_match = min_dist / next_dist < ratio_threshold
 
     global PRINT
     if PRINT:
         print(feature.image_idx, best.image_idx)
-        print(best.pixel_location)
-        print(second_best.pixel_location)
-        print(feature.pixel_location)
+        print(best.coordinates)
+        print(second_best.coordinates)
+        print(feature.coordinates)
         print(min_dist, next_dist, valid_match)
         PRINT = False
 
     return (valid_match, best)
 
-def find_match_group(feature, feature_lists):
+def find_match_group(feature, feature_lists, ratio_threshold=0.7):
     match_tuples = [
-        find_match(feature, feature_list)
+        find_match(feature, feature_list, ratio_threshold=ratio_threshold)
         for feature_list in feature_lists
         if len(feature_list) > 1
     ]
@@ -119,7 +119,7 @@ def find_match_group(feature, feature_lists):
         if match_tuple[0]
     )
 
-def group_feature_matches(feature_lists):
+def group_feature_matches(feature_lists, ratio_threshold=0.7):
     feature_groups = []
     num_lists = len(feature_lists)
     for i in range(num_lists):
@@ -143,7 +143,7 @@ def group_feature_matches(feature_lists):
             ]
 
             # get all matches to current feature
-            group = find_match_group(feature, other_lists)
+            group = find_match_group(feature, other_lists, ratio_threshold=ratio_threshold)
 
             # skip group if it only contains current feature
             if len(group) == 1:
@@ -267,7 +267,7 @@ if __name__=="__main__":
 
     feature_points = [
         [
-            feature.pixel_location
+            feature.coordinates
             for feature in feature_list
         ]
         for feature_list in features
@@ -283,7 +283,7 @@ if __name__=="__main__":
     for group in feature_groups[190:197]:
         print(len(group))
         print([feature.image_idx for feature in group])
-        print([feature.pixel_location for feature in group])
+        print([feature.coordinates for feature in group])
 
     point_list = []
     for i in range(len(im_gray)):
@@ -292,7 +292,7 @@ if __name__=="__main__":
             added = False
             for feature in group:
                 if feature.image_idx == i:
-                    points.append(feature.pixel_location)
+                    points.append(feature.coordinates)
                     added = True
             if not added:
                 points.append(None)

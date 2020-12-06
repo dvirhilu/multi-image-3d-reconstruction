@@ -164,3 +164,32 @@ def view_object_interactively(face_list, gl_mode=GL_TRIANGLES, windowsize=(700,7
         
         update_screen(face_list, cmap=cmap, gl_mode=gl_mode)
         print(clock.get_fps())
+
+def view_point_cloud_interactively(points, gl_mode=GL_POINTS, windowsize=(700,700), cmap=blue_cmap):
+    # set window and graphics related parameters
+    window = init_window(windowsize=windowsize)
+    set_opengl_params()
+    clock = pygame.time.Clock()
+
+    # parameters for mouse controlled rotation
+    mouse_down = False
+    pos = pygame.mouse.get_pos()
+    prev_pos = pygame.mouse.get_pos()
+
+    while True:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                exit()
+
+            # handle mouse controlled rotation
+            mouse_down = is_mouse_down(event, mouse_down)
+            rotate_obj = mouse_rotation_requested(event, mouse_down)
+            prev_pos = pos[:]
+            pos = pygame.mouse.get_pos()
+
+            if (rotate_obj):
+                execute_mouse_controlled_rotation(face_list, *pos, *prev_pos)
+        
+        update_screen(face_list, cmap=cmap, gl_mode=gl_mode)
+        print(clock.get_fps())
