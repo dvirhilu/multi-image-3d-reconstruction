@@ -6,6 +6,9 @@ from process_image_background import get_ordered_image_points, get_undistored_k_
 from camera_geometry import get_camera_extrinsic_matrix_nls
 from sift import find_window_of_interest, get_sift_feature_objects, group_feature_matches
 from reconstruct_3d_pos import reconstruct_3D_points, compute_reprojection_error_distribution
+from utils.view3D_utils import view_point_cloud_interactively
+from utils import plt_utils
+import utils.linalg_utils as linalg
 
 if __name__=="__main__":
     ##########################################################################
@@ -152,12 +155,113 @@ if __name__=="__main__":
         proj_mats
     )
 
-    print(max(reprojection_error), np.mean(reprojection_error), len(reprojection_error))
+    len(reprojection_error)
 
-    print(sum(i > 100 for i in reprojection_error))
+    reprojection_error_threshold = 20
+    point_cloud = [
+        point_cloud[i]
+        for i in range(len(point_cloud))
+        if reprojection_error[i] < reprojection_error_threshold
+    ]
+    reprojection_error = [
+        error
+        for error in reprojection_error
+        if error < reprojection_error_threshold
+    ]
+
+    print(len(reprojection_error))
 
     import matplotlib.pyplot as plt
     plt.figure()
-    plt.hist(reprojection_error, bins=1000)
-    # plt.xlim((0, 1e5))
-    plt.show()
+    plt.hist(reprojection_error, bins=reprojection_error_threshold)
+
+    # imin=10
+    # imax=20
+    # reprojection_list = [[] for i in range(len(images))]
+    # original = [[] for i in range(len(images))]
+    # for (group, reco) in zip(feature_groups[imin:imax], point_cloud[imin:imax]):
+    #     for i in range(len(reprojection_list)):
+    #         indices_in_group = [
+    #             feature.image_idx
+    #             for feature in group
+    #         ]
+
+    #         if i in indices_in_group:
+    #             P = proj_mats[i]
+    #             X = np.append(reco, [1], axis=0).reshape(4,1)
+    #             reprojection_homogeneous = P @ X
+    #             reprojection = reprojection_homogeneous[:2] / reprojection_homogeneous[2]
+    #             reprojection_list[i].append(reprojection)
+
+    #             original[i].append(group[indices_in_group.index(i)].coordinates)
+    #         else:
+    #             reprojection_list[i].append(None)
+    #             original[i].append(None)
+
+    # print(np.shape(reprojection_list))
+    # print(np.shape(original))
+
+    # plt_utils.plot_image_points(images, reprojection_list, same_colour=False, sup_title="Reprojections")
+    # plt_utils.plot_image_points(images, original, same_colour=False, sup_title="Original")
+
+    # filter points with z < 0
+    point_cloud = [
+        point
+        for point in point_cloud
+        if point[2] >= 0
+    ]
+
+    # x,y,z dist filtering
+    centroid = np.array([0, 0, 0], dtype=float)
+    for point in point_cloud:
+        centroid += point / len(point_cloud)
+
+    x_dist = [
+        point[0] - centroid[0]
+        for point in point_cloud
+    ]
+
+    y_dist = [
+        point[1] - centroid[1]
+        for point in point_cloud
+    ]
+
+    z_dist = [
+        point[2] - centroid[2]
+        for point in point_cloud
+    ]
+
+    x_cutoff = np.std(x_dist)
+    y_cutoff = np.std(y_dist)
+    z_cutoff = np.percentile(z_dist, 80)
+
+    point_cloud = [
+        point_cloud[i]
+        for i in range(len(point_cloud))
+        if  np.abs(x_dist[i]) < x_cutoff
+        and np.abs(y_dist[i]) < y_cutoff
+        and z_dist[i] < z_cutoff
+    ]
+
+    plt.figure()
+    plt.hist(x_dist, bins=50)
+    plt.figure()
+    plt.hist(y_dist, bins=50)
+    plt.figure()
+    plt.hist(z_dist, bins=50)
+
+    # shift point cloud to new centroid
+    centroid = np.array([0, 0, 0], dtype=float)
+    for point in point_cloud:
+        centroid += point / len(point_cloud)
+
+    point_cloud = [
+        point - centroid
+        for point in point_cloud
+    ]
+
+
+    # plt.show()
+    view_point_cloud_interactively(point_cloud)
+
+    

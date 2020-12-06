@@ -9,6 +9,8 @@ from camera_geometry import get_camera_extrinsic_matrix_nls, get_world_points
 import matplotlib.pyplot as plt
 from itertools import combinations
 
+COUNT=0
+
 def create_ls_matrix(proj_mats, image_points):
     x_cross_prod_eqns = np.array([
         point[0]*P[2, :].T - P[0, :].T
@@ -49,13 +51,19 @@ def reconstruct_3D_points(feature_groups, proj_mats):
     return reconsturcted_points
 
 def compute_mean_reprojection_error(reconstructed_point, feature_group, P_mats):
+    global COUNT
     total_error = 0
     for feature in feature_group:
+        # compute reprojection
         P = P_mats[feature.image_idx]
         X = np.append(reconstructed_point, [1], axis=0).reshape(4,1)
         reprojection_homogeneous = P @ X
-        reprojection = reprojection_homogeneous[:2] / reprojection_homogeneous[2]
-        total_error += linalg.get_euclidean_distance(reprojection, feature.coordinates)
+        reprojection = reprojection_homogeneous[:2, 0] / reprojection_homogeneous[2,0]
+
+        # get original image point
+        image_point = np.array(feature.coordinates)
+
+        total_error += linalg.get_euclidean_distance(reprojection, image_point)
 
     return total_error / len(feature_group)
 

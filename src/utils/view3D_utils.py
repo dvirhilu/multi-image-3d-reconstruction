@@ -62,7 +62,7 @@ def init_window(windowsize=(400,400)):
     window = pygame.display.set_mode(windowsize, DOUBLEBUF|OPENGL)
     return window
 
-def set_opengl_params(perspective_distance=5):
+def set_opengl_params(perspective_distance=20):
     gluPerspective(45, 1, 0.1, 50.0)
     glTranslatef(0.0,0.0, -perspective_distance)
     glEnable(GL_CULL_FACE)
@@ -165,6 +165,26 @@ def view_object_interactively(face_list, gl_mode=GL_TRIANGLES, windowsize=(700,7
         update_screen(face_list, cmap=cmap, gl_mode=gl_mode)
         print(clock.get_fps())
 
+def execute_mouse_controlled_point_rotation(x, y, x_prev, y_prev):
+    # mouse coordinates increase y in downward direction
+    displacement_vec = np.array([x-x_prev, -(y-y_prev), 0])
+    if linalg_utils.norm(displacement_vec) == 0:
+        return
+    rotation_axis = np.cross(displacement_vec, np.array([0,0,-1]))
+    rotation_angle = 0.3*linalg_utils.norm(displacement_vec)
+
+    glRotatef(rotation_angle, *rotation_axis)
+    
+def update_points_on_screen(points, cmap=blue_cmap, gl_mode=GL_POINTS):
+    glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT)
+    glBegin(gl_mode)
+
+    for point in points:
+        glVertex3fv(point)
+
+    glEnd()
+    pygame.display.flip()
+
 def view_point_cloud_interactively(points, gl_mode=GL_POINTS, windowsize=(700,700), cmap=blue_cmap):
     # set window and graphics related parameters
     window = init_window(windowsize=windowsize)
@@ -189,7 +209,7 @@ def view_point_cloud_interactively(points, gl_mode=GL_POINTS, windowsize=(700,70
             pos = pygame.mouse.get_pos()
 
             if (rotate_obj):
-                execute_mouse_controlled_rotation(face_list, *pos, *prev_pos)
+                execute_mouse_controlled_point_rotation(*pos, *prev_pos)
         
-        update_screen(face_list, cmap=cmap, gl_mode=gl_mode)
+        update_points_on_screen(points, cmap=cmap, gl_mode=gl_mode)
         print(clock.get_fps())
