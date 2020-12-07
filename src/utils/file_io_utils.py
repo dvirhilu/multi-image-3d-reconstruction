@@ -16,7 +16,8 @@ def load_object_images(object_name):
     filenames = glob.glob("./images/objects/" + object_name + "/*")
 
     print("Loading the following object images:", object_name)
-    print(filenames)
+    for filename in filenames:
+        print(filename)
 
     return [
         cv2.imread(file)

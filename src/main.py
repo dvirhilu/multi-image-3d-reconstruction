@@ -20,7 +20,8 @@ from reconstruct_3d_pos import (
     reconstruct_3D_points, 
     filter_reprojection_error, 
     filter_xyz_outliers,
-    shift_points_to_centroid
+    shift_points_to_centroid,
+    add_background_surface
 )
 from utils.view3D_utils import view_point_cloud_interactively
 
@@ -64,7 +65,7 @@ if __name__=="__main__":
     width                   = 6
     square_size             = 1.9
     sift_ratio_threshold    = 0.7
-    num_xy_stdev            = 1
+    num_xy_stdev            = 2.5
     z_percentile            = 80
 
     ##########################################################################
@@ -113,7 +114,7 @@ if __name__=="__main__":
     # find failed image indices
     failed_indices = [
         i
-        for i in range(len(is_valid), -1, -1)
+        for i in range(len(is_valid)-1, -1, -1)
         if not is_valid[i]
     ]
 
@@ -140,8 +141,24 @@ if __name__=="__main__":
     ]
 
     # find failed projection matrices
-    failed_indices = 
-    
+    failed_indices = find_high_error_proj_mat_indices(
+        image_points,
+        proj_mats,
+        mean_error_threshold=mean_error_threshold,
+        max_error_threshold=max_error_threshold,
+        length=length,
+        width=width,
+        square_size=square_size
+    )
+
+    print(failed_indices)
+
+    # filter out failed projections matrices
+    for i in failed_indices:
+        del image_points[i]
+        del images[i]
+        del proj_mats[i]
+        del images_orig[i]
 
     ##########################################################################
     # Use SIFT to match features between images
@@ -183,9 +200,10 @@ if __name__=="__main__":
         z_percentile=z_percentile
     )
 
+    # add background surface
+    point_cloud = add_background_surface(point_cloud, num_stdev=num_xy_stdev)
+
     # shift point cloud to new centroid
     point_cloud = shift_points_to_centroid(point_cloud)
 
     view_point_cloud_interactively(point_cloud)
-
-    

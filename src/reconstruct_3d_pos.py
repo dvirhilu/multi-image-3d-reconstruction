@@ -76,7 +76,7 @@ def filter_reprojection_error(reconstructed_points, feature_groups, P_mats, repr
     reprojection_error = compute_reprojection_error_distribution(
         reconstructed_points, 
         feature_groups, 
-        proj_mats
+        P_mats
     )
 
     # filter out points above MAE threshold
@@ -141,6 +141,34 @@ def shift_points_to_centroid(points):
         point - centroid
         for point in points
     ]
+
+def add_background_surface(points, num_stdev=1):
+    x_dist = [
+        point[0]
+        for point in points
+    ]
+
+    y_dist = [
+        point[1]
+        for point in points
+    ]
+
+    meanx = np.mean(x_dist)
+    stdevx = np.std(x_dist)
+    meany = np.mean(y_dist)
+    stdevy = np.std(y_dist)
+    xmin = meanx-stdevx*num_stdev
+    xmax = meanx+stdevx*num_stdev
+    ymin = meany-stdevy*num_stdev
+    ymax = meany+stdevy*num_stdev
+
+    background_surface_points = [
+        np.array([x, y, 0])
+        for x in np.linspace(xmin, xmax, int(10*num_stdev))
+        for y in np.linspace(ymin, ymax, int(10*num_stdev))
+    ]
+
+    return points + background_surface_points
 
 if __name__=="__main__":
     camera_calib = "SamsungGalaxyA8"

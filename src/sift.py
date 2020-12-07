@@ -7,8 +7,6 @@ from process_image_background import undistort, get_undistored_k_matrix, get_ord
 import utils.linalg_utils as linalg
 from collections import namedtuple
 
-PRINT = True
-
 class SIFTFeature:
     def __init__(self, image_idx, coordinates, descriptor):
         self.image_idx = image_idx
@@ -44,8 +42,6 @@ def find_window_of_interest(image_points):
     x_vals = x_vals[2:16:4]
     y_vals = y_vals[2:16:4]
 
-    print(y_vals)
-
     return Window(min(x_vals), max(x_vals), min(y_vals), max(y_vals))
 
 def kp_in_bound(kp, window):
@@ -60,16 +56,12 @@ def get_sift_feature_objects(image, image_index, window):
     sift = cv2.SIFT_create()
     kps, descs = sift.detectAndCompute(image, None)
 
-    print(len(kps))
-    print(image_index)
-
     feature_list =  [
         SIFTFeature(image_index, kp.pt, des)
         for (kp, des) in zip(kps, descs)
         if kp_in_bound(kp, window)
     ]
 
-    print(len(feature_list))
     return feature_list
 
 def find_match(feature, feature_list, ratio_threshold=0.7):
@@ -91,15 +83,6 @@ def find_match(feature, feature_list, ratio_threshold=0.7):
     min_dist = linalg.get_euclidean_distance(best.descriptor, feature.descriptor)
     next_dist = linalg.get_euclidean_distance(second_best.descriptor, feature.descriptor)
     valid_match = min_dist / next_dist < ratio_threshold
-
-    global PRINT
-    if PRINT:
-        print(feature.image_idx, best.image_idx)
-        print(best.coordinates)
-        print(second_best.coordinates)
-        print(feature.coordinates)
-        print(min_dist, next_dist, valid_match)
-        PRINT = False
 
     return (valid_match, best)
 

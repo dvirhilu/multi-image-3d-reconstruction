@@ -98,11 +98,11 @@ def minimizer(func, starting_params, args=()):
     if (not results.success):
         print(results.message)
 
-    print("initial guess: ", starting_params)
-    print("sum of squares: ", func(starting_params, *args))
-    print("Converged with %d iterations" %results.nit)
-    print("results: ", results.x)
-    print("sum of squares: ", func(results.x, *args))
+    # print("initial guess: ", starting_params)
+    # print("sum of squares: ", func(starting_params, *args))
+    # print("Converged with %d iterations" %results.nit)
+    # print("results: ", results.x)
+    # print("sum of squares: ", func(results.x, *args))
 
     return results.x
 
@@ -154,9 +154,6 @@ def compute_fundemental_matrix(K1, K2, G1, G2):
     C1 = np.append(C1, 1).reshape(4,1)
     e2 = P2 @ C1
 
-    print(C1)
-    print(e2)
-
     # compute fundemental matrix components
     P1_inv = linalg.pseudo_inv(P1)
     e2_skew = linalg.skew_sym(e2.flatten())
@@ -175,17 +172,22 @@ def find_high_error_proj_mat_indices(image_points, P_mats,
             P @ vec
             for vec in x_corners
         ]
-        for (P) in zip(P_mats) 
+        for P in P_mats 
     ]
+
+    print(np.shape(projections))
 
     # convert from homogeneous coordinates
     projections = [
         [
-            point[:2,0] / point[2]
+            point[:2].reshape(2,) / point[2]
             for point in points
         ]
         for points in projections
     ]
+
+    print(np.shape(projections))
+    print(np.shape(image_points))
 
     # compute mean and max projection errors for every projection matrix
     projection_errors = [
@@ -206,9 +208,12 @@ def find_high_error_proj_mat_indices(image_points, P_mats,
         for error_dist in projection_errors
     ]
 
+    print(mean_errors)
+    print(max_errors)
+
     return [
         i
-        for i in range(len(P_mats), -1, -1)
+        for i in range(len(P_mats)-1, -1, -1)
         if mean_errors[i] > mean_error_threshold
         or max_errors[i] > max_error_threshold
     ]
