@@ -25,7 +25,7 @@ def create_ls_matrix(proj_mats, image_points):
     return np.concatenate((x_cross_prod_eqns, y_cross_prod_eqns), axis=0)
 
 def reconstruct_3D_points(feature_groups, proj_mats):
-    reconsturcted_points = []
+    reconstructed_points = []
     for group in feature_groups:
         relevant_proj_mats = [
             proj_mats[feature.image_idx]
@@ -44,11 +44,9 @@ def reconstruct_3D_points(feature_groups, proj_mats):
         # convert back from homogeneous coordinates
         world_point = world_point[0:3] / world_point[3]
 
-        reconsturcted_points.append(world_point)
+        reconstructed_points.append(world_point)
 
-    # TODO: filter based on reprojection error
-
-    return reconsturcted_points
+    return reconstructed_points
 
 def compute_mean_reprojection_error(reconstructed_point, feature_group, P_mats):
     global COUNT
@@ -71,6 +69,77 @@ def compute_reprojection_error_distribution(reconstructed_points, feature_groups
     return [
         compute_mean_reprojection_error(point, group, P_mats)
         for (point, group) in zip(reconstructed_points, feature_groups)
+    ]
+
+def filter_reprojection_error(reconstructed_points, feature_groups, P_mats, reprojection_error_threshold=20):
+    # compute mean reprojection error for each reconstructed point
+    reprojection_error = compute_reprojection_error_distribution(
+        reconstructed_points, 
+        feature_groups, 
+        proj_mats
+    )
+
+    # filter out points above MAE threshold
+    return [
+        reconstructed_points[i]
+        for i in range(len(reconstructed_points))
+        if reprojection_error[i] < reprojection_error_threshold
+    ]
+
+def filter_xyz_outliers(reconstructed_points, num_stdev=1, z_percentile=80):
+    # filter points with z < 0
+    reconstructed_points = [
+        point
+        for point in reconstructed_points
+        if point[2] >= 0
+    ]
+
+    # compute point centroid
+    centroid = compute_centroid(reconstructed_points)
+
+    # get x and y distributions shifted by centroid
+    x_dist = [
+        point[0] - centroid[0]
+        for point in reconstructed_points
+    ]
+
+    y_dist = [
+        point[1] - centroid[1]
+        for point in reconstructed_points
+    ]
+
+    # get z distribution (z is compared relative to z=0 not the centroid)
+    z_dist = [
+        point[2]
+        for point in reconstructed_points
+    ]
+
+    # define cutoff values
+    x_cutoff = np.std(x_dist) * num_stdev
+    y_cutoff = np.std(y_dist) * num_stdev
+    z_cutoff = np.percentile(z_dist, z_percentile)
+
+    # only retain point if it is within all cutoffs
+    return [
+        reconstructed_points[i]
+        for i in range(len(reconstructed_points))
+        if  np.abs(x_dist[i]) < x_cutoff
+        and np.abs(y_dist[i]) < y_cutoff
+        and z_dist[i] < z_cutoff
+    ]
+
+def compute_centroid(points):
+    centroid = np.zeros(points[0].shape)
+    for point in points:
+        centroid += point / len(points)
+
+    return centroid
+
+def shift_points_to_centroid(points):
+    centroid = compute_centroid(points)
+    return [
+        point - centroid
+        for point in points
     ]
 
 if __name__=="__main__":

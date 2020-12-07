@@ -163,6 +163,56 @@ def compute_fundemental_matrix(K1, K2, G1, G2):
 
     return e2_skew @ P2 @ P1_inv
 
+def find_high_error_proj_mat_indices(image_points, P_mats, 
+                                     mean_error_threshold=10, 
+                                     max_error_threshold=20, length=9, 
+                                     width=6, square_size=1.9):
+    x_corners = get_world_points(length, width, square_size)
+
+    # project x corners using projection matrix
+    projections = [
+        [
+            P @ vec
+            for vec in x_corners
+        ]
+        for (P) in zip(P_mats) 
+    ]
+
+    # convert from homogeneous coordinates
+    projections = [
+        [
+            point[:2,0] / point[2]
+            for point in points
+        ]
+        for points in projections
+    ]
+
+    # compute mean and max projection errors for every projection matrix
+    projection_errors = [
+        [
+            linalg.get_euclidean_distance(proj, point)
+            for (proj, point) in zip(proj_points, points)
+        ]
+        for (proj_points, points) in zip(projections, image_points)
+    ]
+
+    mean_errors = [
+        np.mean(error_dist)
+        for error_dist in projection_errors
+    ]
+
+    max_errors = [
+        np.max(error_dist)
+        for error_dist in projection_errors
+    ]
+
+    return [
+        i
+        for i in range(len(P_mats), -1, -1)
+        if mean_errors[i] > mean_error_threshold
+        or max_errors[i] > max_error_threshold
+    ]
+
 if __name__=="__main__":
     camera_calib = "SamsungGalaxyA8"
     
