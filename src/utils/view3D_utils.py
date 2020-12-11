@@ -23,7 +23,6 @@ from matplotlib.patches import Polygon
 from matplotlib import pyplot as plt
 import numpy as np
 import utils.linalg_utils as linalg
-from utils.face_3d import Face3D
 
 def init_window(windowsize=(400,400)):
     '''
