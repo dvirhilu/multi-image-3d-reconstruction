@@ -4,15 +4,14 @@ import cv2
 import numpy as np
 import yaml
 
-def load_calib_images(calib_name):
-    filenames = glob.glob("./images/calibration/" + calib_name + "/*")
-
-    return [
-        cv2.imread(file)
-        for file in filenames
-    ]
-
 def load_object_images(object_name):
+    '''
+    @brief  Loads a set of object images based on the object name
+
+    @param objecc_name The name of the directory in images/objects containing 
+                        the object images
+    @return             A list of loaded images
+    '''
     filenames = glob.glob("./images/objects/" + object_name + "/*")
 
     print("Loading the following object images:", object_name)
@@ -24,16 +23,19 @@ def load_object_images(object_name):
         for file in filenames
     ]
 
-def save_calib_coefficients(mtx, dist, calib_name):
-    """ Save the camera matrix and the distortion coefficients to given path/file. """
-    cv_file = cv2.FileStorage("./calibration_params/" + calib_name + ".yaml", cv2.FILE_STORAGE_WRITE)
-    cv_file.write("k", mtx)
-    cv_file.write("d", dist)
-    # note you *release* you don't close() a FileStorage object
-    cv_file.release()
-
 def load_calib_coefficients(calib_name):
-    """ Loads camera matrix and distortion coefficients. """
+    '''
+    @brief  Loads a set of camera calibration coefficients based on calib_name
+
+    For more info:
+    https://docs.opencv.org/master/dc/dbb/tutorial_py_calibration.html
+    @param calib_name   The name of the directory in 
+                        camera_calibration/calib_params containing the
+                        calibration parameters
+    @return k           The 3x3 intrinsic calibration matrix
+    @return d           The (5,) shape ndarray containing distrotion
+                        parameters in the form [k1, k2, p1, p2, p3]
+    '''
     # set calibration file path
     filename = "./camera_calibration/calib_params/" + calib_name + ".yaml"
 

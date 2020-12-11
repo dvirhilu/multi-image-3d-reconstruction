@@ -22,69 +22,41 @@ from matplotlib.collections import PatchCollection
 from matplotlib.patches import Polygon
 from matplotlib import pyplot as plt
 import numpy as np
-from utils import linalg_utils
-from utils.common_types import *
-
-blue_cmap = cm.get_cmap("Blues")
-
-def get_shade_val(face, light_dir=np.array([1,1,1])):
-    unit_normal = linalg_utils.unit_vect(face.normal_vector)
-    unit_light_dir = linalg_utils.unit_vect(light_dir)
-    shade_inv = np.dot(unit_normal, unit_light_dir)
-
-    return 1-shade_inv
-
-def set_face_render_info(face_list, cmap=blue_cmap, light_dir=np.array([1,1,1])):
-    for face in face_list:
-        cfill = cmap(get_shade_val(face, light_dir=light_dir))
-        face.set_render_colours(cfill)
-
-def render_face(face):
-    # polygon = Polygon(face.vertices_xy, True)
-    # patches = PatchCollection([polygon], facecolors=face.cfill, edgecolors=face.cline)
-
-    # ax.add_collection(patches)
-    color = face.cfill
-    for vertex in face.vertices:
-        glColor3fv((color[0], color[1], color[2]))
-        glVertex3fv(vertex)
-
-def render_faces(face_list, cmap=blue_cmap, light_dir= np.array([1,1,1])):
-    # set information about fill and line colours for faces
-    set_face_render_info(face_list, cmap=cmap, light_dir=light_dir)
-
-    # face_list.sort(key= lambda face:face.normal_vector[2])
-    for face in face_list:
-        render_face(face)
+import utils.linalg_utils as linalg
+from utils.face_3d import Face3D
 
 def init_window(windowsize=(400,400)):
+    '''
+    @brief  initialize pygame window
+
+    @param windowsize   The size of the generated window
+    @return             The generated pygame window
+    '''
     pygame.init()
     window = pygame.display.set_mode(windowsize, DOUBLEBUF|OPENGL)
     return window
 
 def set_opengl_params(perspective_distance=20):
+    '''
+    @brief  Initialize OpenGL parameters
+
+    @param perspective_distance The distance between origin and observation 
+                                point in cm
+    '''
     gluPerspective(45, 1, 0.1, 50.0)
     glTranslatef(0.0,0.0, -perspective_distance)
     glEnable(GL_CULL_FACE)
     glEnable(GL_DEPTH_TEST)
     glCullFace(GL_BACK) 
 
-def update_screen(face_list, cmap=blue_cmap, gl_mode=GL_POINTS):
-    glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT)
-    glBegin(gl_mode)
-    render_faces(face_list, cmap=cmap)
-    glEnd()
-    pygame.display.flip()
-
-def rotate_view(face_list, angle, x, y, z, use_opengl=False):
-    if use_opengl:
-        glRotatef(angle, x, y, z)
-    else:
-        for face in face_list:
-            angle_rad = np.pi/180 * angle
-            face.rotate(angle=angle_rad, rot_axis=np.array([x,y,z]))
-
 def is_mouse_down(event, mouse_down):
+    '''
+    @brief  Determines whether mouse was pressed
+
+    @param event        pygame event 
+    @param mouse_down   is the mouse already pressed
+    @return             Whether the mouse is currently pressed
+    '''
     if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
         return True
     elif event.type == pygame.MOUSEBUTTONUP and event.button == 1:
@@ -93,91 +65,55 @@ def is_mouse_down(event, mouse_down):
         return mouse_down
 
 def mouse_rotation_requested(event, mouse_down):
+    '''
+    @brief  Was the mouse moved while pressed by the used
+
+    @param event        pygame event 
+    @param mouse_down   is the mouse already pressed
+    @return             Whether the mouse was moved while pressed
+    '''
     return event.type == pygame.MOUSEMOTION and mouse_down
 
-def auto_rotation_requested(event, auto_rotating):
-    if (event.type == KEYDOWN):
-        # toggle auto_rotating when r is pressed
-        if event.key == pygame.K_r:
-            return not auto_rotating
+def execute_mouse_controlled_point_rotation(points, x, y, x_prev, y_prev, use_opengl=False):
+    '''
+    @brief  Rotate the points based on mouse movement 
 
-    return auto_rotating
-
-def get_auto_rotation_axis(event, rotation_direction):
-    if (event.type == KEYDOWN):
-        if event.key == pygame.K_s:
-            return [np.random.uniform(-1,1) for i in range(3)]
-
-    return rotation_direction
-
-def execute_mouse_controlled_rotation(face_list, x, y, x_prev, y_prev):
+    @param points       The point cloud 
+    @param x            Current mouse x position
+    @param y            Current mouse y position
+    @param x_prev       Previous mouse x position
+    @param y_prev       Previous mouse y position
+    @param use_opengl   Use OpenGL or custom rotation method
+    @return             New rotated points if opengl not used. Original points 
+                        if opengl used (opengl rotates view not points)
+    '''
     # mouse coordinates increase y in downward direction
     displacement_vec = np.array([x-x_prev, -(y-y_prev), 0])
-    if linalg_utils.norm(displacement_vec) == 0:
-        return
+    if linalg.norm(displacement_vec) == 0:
+        return points
     rotation_axis = np.cross(displacement_vec, np.array([0,0,-1]))
-    rotation_angle = 0.3*linalg_utils.norm(displacement_vec)
+    rotation_angle = 0.3*linalg.norm(displacement_vec)
     
-    rotate_view(face_list, rotation_angle, *rotation_axis)
+    if use_opengl:
+        glRotatef(rotation_angle, *rotation_axis)
+        return points
+    else:
+        angle = np.pi/180 * rotation_angle
+        rotated_points = []
+        for point in points:
+            rotated_point = linalg.rotate_vec(point, angle, rotation_axis)
+            rotated_points.append(rotated_point)
 
-def execute_auto_rotation(face_list, rotation_axis, time):
-    degrees_per_ms = 36e-3
-    rotate_view(face_list, time*degrees_per_ms, *rotation_axis)
-
-def view_object_interactively(face_list, gl_mode=GL_TRIANGLES, windowsize=(700,700), cmap=blue_cmap):
-    # set window and graphics related parameters
-    window = init_window(windowsize=windowsize)
-    set_opengl_params()
-    clock = pygame.time.Clock()
-
-    # parameters for mouse controlled rotation
-    mouse_down = False
-    pos = pygame.mouse.get_pos()
-    prev_pos = pygame.mouse.get_pos()
-
-    # parameters for automatic rotation
-    auto_rotation_axis = [np.random.uniform(-1,1) for i in range(3)]
-    auto_rotate = False
-
-    while True:
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                pygame.quit()
-                exit()
-
-            # handle mouse controlled rotation
-            mouse_down = is_mouse_down(event, mouse_down)
-            rotate_obj = mouse_rotation_requested(event, mouse_down)
-            prev_pos = pos[:]
-            pos = pygame.mouse.get_pos()
-
-            if (rotate_obj):
-                execute_mouse_controlled_rotation(face_list, *pos, *prev_pos)
-
-            # # handle auto-rotation
-            # auto_rotate = auto_rotation_requested(event, auto_rotate)
-            # time = clock.tick()
-            # auto_rotation_axis = get_auto_rotation_axis(event, auto_rotation_axis)
-
-            # if (auto_rotate):
-            #     execute_auto_rotation(face_list, auto_rotation_axis, time)
-        
-        update_screen(face_list, cmap=cmap, gl_mode=gl_mode)
-        print(clock.get_fps())
-
-def execute_mouse_controlled_point_rotation(x, y, x_prev, y_prev):
-    # mouse coordinates increase y in downward direction
-    displacement_vec = np.array([x-x_prev, -(y-y_prev), 0])
-    if linalg_utils.norm(displacement_vec) == 0:
-        return
-    rotation_axis = np.cross(displacement_vec, np.array([0,0,-1]))
-    rotation_angle = 0.3*linalg_utils.norm(displacement_vec)
-
-    glRotatef(rotation_angle, *rotation_axis)
+        return rotated_points
     
-def update_points_on_screen(points, cmap=blue_cmap, gl_mode=GL_POINTS):
+def update_points_on_screen(points):
+    '''
+    @brief  Update the screen with new point coordinates
+
+    @param points       The point cloud 
+    '''
     glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT)
-    glBegin(gl_mode)
+    glBegin(GL_POINTS)
 
     for point in points:
         glVertex3fv(point)
@@ -185,7 +121,14 @@ def update_points_on_screen(points, cmap=blue_cmap, gl_mode=GL_POINTS):
     glEnd()
     pygame.display.flip()
 
-def view_point_cloud_interactively(points, gl_mode=GL_POINTS, windowsize=(700,700), cmap=blue_cmap):
+def view_point_cloud_interactively(points, windowsize=(700,700)):
+    '''
+    @brief  Creates a pygame window that allows to interactively view and 
+            rotate the point cloud
+
+    @param points       The point cloud
+    @param windowsize   The size of the created pygame window
+    '''
     # set window and graphics related parameters
     window = init_window(windowsize=windowsize)
     set_opengl_params()
@@ -208,8 +151,8 @@ def view_point_cloud_interactively(points, gl_mode=GL_POINTS, windowsize=(700,70
             prev_pos = pos[:]
             pos = pygame.mouse.get_pos()
 
+            # rotate the point cloud if mouse controlled rotation was srequested
             if (rotate_obj):
-                execute_mouse_controlled_point_rotation(*pos, *prev_pos)
+                points = execute_mouse_controlled_point_rotation(points, *pos, *prev_pos)
         
-        update_points_on_screen(points, cmap=cmap, gl_mode=gl_mode)
-        print(clock.get_fps())
+        update_points_on_screen(points)

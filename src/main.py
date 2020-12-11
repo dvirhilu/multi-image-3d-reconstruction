@@ -2,6 +2,7 @@ import numpy as np
 import cv2
 import argparse
 import utils.file_io_utils as io
+import utils.plt_utils as plt
 from process_image_background import (
     get_ordered_image_points, 
     get_undistored_k_matrix, 
@@ -39,7 +40,7 @@ if __name__=="__main__":
                 used to take the images"
     )
     parser.add_argument(
-        '-o', '--object_name', default = "eraser", type = str, 
+        '-o', '--object_name', type = str, 
         help = "The name of the folder which includes the object pictures. \
                 Folder name should be specific and easily associatable with \
                 the object"
@@ -65,7 +66,7 @@ if __name__=="__main__":
     width                   = 6
     square_size             = 1.9
     sift_ratio_threshold    = 0.7
-    num_xy_stdev            = 2.5
+    num_xy_stdev            = 2
     z_percentile            = 80
 
     ##########################################################################
@@ -78,6 +79,7 @@ if __name__=="__main__":
     # Undistort images and update intrinsic calibration matrix
     ##########################################################################
     # adjust intrinsic camera matrix to account for distortion in images
+    print("\nRemoving image distortion...")
     undistort_tuple = [
         get_undistored_k_matrix(image, K, distortion_params)
         for image in images_orig
@@ -99,6 +101,7 @@ if __name__=="__main__":
         for image in images_orig
     ]
 
+    print("\nLocating X-corners in image...")
     # return a sorted list of image locations of the chessboard cross corners
     ret_tuple = [
         get_ordered_image_points(image, windowsize=harris_windowsize, 
@@ -118,15 +121,20 @@ if __name__=="__main__":
         if not is_valid[i]
     ]
 
+    print("X-corners could not be located in the following images:", failed_indices)
+    print("Remving them...")
+
     # filter out failed images
     for i in failed_indices:
         del image_points[i]
         del images[i]
         del images_orig[i]
 
+
     ##########################################################################
     # Calculate projection matrix
     ##########################################################################
+    print("\nRunning NLS computation to find extrinsic camera parameters...")
     # compute extrinsic camera calibration matrix
     G_mats = [
         get_camera_extrinsic_matrix_nls(points, K, length=length, width=width, 
@@ -151,7 +159,9 @@ if __name__=="__main__":
         square_size=square_size
     )
 
-    print(failed_indices)
+    print("Projection error too high for the following images:", failed_indices)
+    print("Remving them...")
+
 
     # filter out failed projections matrices
     for i in failed_indices:
@@ -169,22 +179,34 @@ if __name__=="__main__":
         for points in image_points
     ]
 
+    print("\nUsing SIFT to detect image features...")
     # use SIFT to create SIFTFeature objects
     # The SIFTFeature class is defined in src/sift.py
     features = [
         get_sift_feature_objects(images[i], i, windows[i])
         for i in range(len(images))
     ]
+    print("Summary of features detected in each image:")
+    for i in range(len(images)):
+        print("Image %0d" %i, len(features[i]))
 
+    print("\nFinding SIFT feature match groups across all images...")
     # group features that match across more than one image together
     feature_groups = group_feature_matches(features, ratio_threshold=sift_ratio_threshold)
+    print("%0d feature groups found" % len(feature_groups))
 
     ##########################################################################
     # Triangulate point cloud from matching image features
     ##########################################################################
+    print("\nTriangulating SIFT feature points...")
     # generate initial point cloud
     point_cloud = reconstruct_3D_points(feature_groups, proj_mats)
+    
+    # report number of points
+    original_size = len(point_cloud)
+    print("%0d point cloud generated!" % original_size)
 
+    print("\nRemoving points with high reprojection error...")
     # filter points based on reprojection error
     point_cloud = filter_reprojection_error(
         point_cloud,
@@ -192,17 +214,36 @@ if __name__=="__main__":
         proj_mats,
         reprojection_error_threshold=mean_error_threshold
     )
-
+    
+    # report number of rejected points
+    new_size = len(point_cloud)
+    print(
+        "%0d points (%.2f %%) removed from point cloud due to " \
+        "high reprojection error" % \
+        ((original_size - new_size), 100*(1-new_size/original_size))
+    )
+    
     # filter points based on x,y,z distribution outliers
     point_cloud = filter_xyz_outliers(
         point_cloud,
         num_stdev=num_xy_stdev,
         z_percentile=z_percentile
     )
+    
+    # report number of rejected points
+    original_size = new_size
+    new_size = len(point_cloud)
+    print(
+        "%0d points (%.2f %%) removed from point cloud due to " \
+        "being outliers in XYZ distributions" % \
+        ((original_size - new_size), 100*(1-new_size/original_size))
+    )
 
-    # add background surface
-    point_cloud = add_background_surface(point_cloud, num_stdev=num_xy_stdev)
+    # # add background surface
+    # point_cloud = add_background_surface(point_cloud, num_stdev=num_xy_stdev)
 
+    print("\nStarting up interactive point cloud viewer with %0d points..."\
+          % len(point_cloud))
     # shift point cloud to new centroid
     point_cloud = shift_points_to_centroid(point_cloud)
 

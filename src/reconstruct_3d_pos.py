@@ -1,22 +1,27 @@
 import numpy as np
 import utils.linalg_utils as linalg
-import utils.file_io_utils as io
-from process_image_background import get_ordered_image_points, undistort, get_undistored_k_matrix
-from utils import plt_utils
 import cv2
 from sift import SIFTFeature
-from camera_geometry import get_camera_extrinsic_matrix_nls, get_world_points
-import matplotlib.pyplot as plt
 from itertools import combinations
 
-COUNT=0
-
 def create_ls_matrix(proj_mats, image_points):
+    '''
+    @brief  Generates the homogeneous least squares matrix from the feature 
+            image points and their corresponding projection matrices
+
+    @param proj_mats        The projection matrices for each image, ordered by 
+                            the image index
+    @param image_points     A list of coordinates of the matched features, 
+                            also ordered by image index
+    @return                 The homogeneous least squares matrix
+    '''
+    # generate rows for all x image point coordinate equations
     x_cross_prod_eqns = np.array([
         point[0]*P[2, :].T - P[0, :].T
         for (point, P) in zip(image_points, proj_mats)
     ])
 
+    # generate rows for all y image point coordinate equations
     y_cross_prod_eqns = np.array([
         point[1]*P[2, :].T - P[1, :].T
         for (point, P) in zip(image_points, proj_mats)
@@ -25,20 +30,34 @@ def create_ls_matrix(proj_mats, image_points):
     return np.concatenate((x_cross_prod_eqns, y_cross_prod_eqns), axis=0)
 
 def reconstruct_3D_points(feature_groups, proj_mats):
+    '''
+    @brief  Generates a point cloud from the feature groups by using the least 
+            squares solution to a homogeneous system
+
+    @param feature_groups   A list of the feature groups used in the 
+                            reconstruction.
+    @param proj_mats        The projection matrices for each image, ordered by 
+                            the image index
+    @return                 A list of reconstructed points
+    '''
     reconstructed_points = []
     for group in feature_groups:
+        # exctract projection matrices corresponding to the features
         relevant_proj_mats = [
             proj_mats[feature.image_idx]
             for feature in group
         ]
 
+        # extract feature image coordinates
         image_points = [
             feature.coordinates
             for feature in group
         ]
 
+        # generate homogeneous least squares matrix
         ls_mat = create_ls_matrix(relevant_proj_mats, image_points)
 
+        # solve linear least squares system
         world_point = linalg.solve_homogeneous_least_squares(ls_mat)
 
         # convert back from homogeneous coordinates
@@ -49,7 +68,18 @@ def reconstruct_3D_points(feature_groups, proj_mats):
     return reconstructed_points
 
 def compute_mean_reprojection_error(reconstructed_point, feature_group, P_mats):
-    global COUNT
+    '''
+    @brief  Computes the of mean reprojection error of a single reconstructed 
+            point
+
+    @param reconstructed_point  The reconstructed point
+    @param feature_groups       The feature group corresponding to the
+                                reconstructed point
+    @param P_mats               The projection matrices for each image, 
+                                ordered by the image index
+    @return                     The mean reprojection error of the 
+                                reconstructed point
+    '''
     total_error = 0
     for feature in feature_group:
         # compute reprojection
@@ -66,12 +96,43 @@ def compute_mean_reprojection_error(reconstructed_point, feature_group, P_mats):
     return total_error / len(feature_group)
 
 def compute_reprojection_error_distribution(reconstructed_points, feature_groups, P_mats):
+    '''
+    @brief  Computes the distribution of mean reprojection error for the
+            reconstructed points
+
+    @param reconstructed_points The orignal point cloud
+    @param feature_groups       A list of the feature groups used in the
+                                reconstruction. These should be in the same 
+                                order as the reconstructed points the 
+                                correspond to
+    @param P_mats               The projection matrices for each image, 
+                                ordered by the image index
+    @return                     A list containing the mean reprojection error 
+                                of each reconstructed point
+    '''
     return [
         compute_mean_reprojection_error(point, group, P_mats)
         for (point, group) in zip(reconstructed_points, feature_groups)
     ]
 
 def filter_reprojection_error(reconstructed_points, feature_groups, P_mats, reprojection_error_threshold=20):
+    '''
+    @brief  Filters the point cloud to remove points have high reprojection 
+            error
+
+    @param reconstructed_points         The orignal point cloud
+    @param feature_groups               A list of the feature groups used in 
+                                        the reconstruction. These should be in 
+                                        the same order as the reconstructed 
+                                        points the correspond to
+    @param P_mats                       The projection matrices for each 
+                                        image, ordered by the image index
+    @param reprojection_error_threshold Points with a mean absolute 
+                                        reprojection error of more than 
+                                        reprojection_error_threshold are 
+                                        discarded
+    @return                             The new filtered point cloud
+    '''
     # compute mean reprojection error for each reconstructed point
     reprojection_error = compute_reprojection_error_distribution(
         reconstructed_points, 
@@ -87,6 +148,17 @@ def filter_reprojection_error(reconstructed_points, feature_groups, P_mats, repr
     ]
 
 def filter_xyz_outliers(reconstructed_points, num_stdev=1, z_percentile=80):
+    '''
+    @brief  Filters the point cloud to remove points that are outliers in xyz 
+            distributions
+
+    @param reconstructed_points The orignal point cloud
+    @param num_stdev            Points located beyond num_stdev in the x and y 
+                                distributions are discarded
+    @param z_percentile         Points located beyond the z_percentile in the 
+                                z distribution are discarded
+    @return                     The new filtered point cloud
+    '''
     # filter points with z < 0
     reconstructed_points = [
         point
@@ -95,7 +167,7 @@ def filter_xyz_outliers(reconstructed_points, num_stdev=1, z_percentile=80):
     ]
 
     # compute point centroid
-    centroid = compute_centroid(reconstructed_points)
+    centroid = linalg.compute_point_group_centroid(reconstructed_points)
 
     # get x and y distributions shifted by centroid
     x_dist = [
@@ -128,21 +200,30 @@ def filter_xyz_outliers(reconstructed_points, num_stdev=1, z_percentile=80):
         and z_dist[i] < z_cutoff
     ]
 
-def compute_centroid(points):
-    centroid = np.zeros(points[0].shape)
-    for point in points:
-        centroid += point / len(points)
-
-    return centroid
-
 def shift_points_to_centroid(points):
-    centroid = compute_centroid(points)
+    '''
+    @brief  Shifts point cloud so that the origin is at its centroid
+
+    @param points       The original point cloud
+    @return             The new shifted point cloud
+    '''
+    centroid = linalg.compute_point_group_centroid(points)
     return [
         point - centroid
         for point in points
     ]
 
 def add_background_surface(points, num_stdev=1):
+    '''
+    @brief  Adds points in reconstructed point cloud to indicate where the 
+            flat x-corner board is
+
+    @param points       The original point cloud
+    @param num_stdev    Extent of points. Indicates how many standard 
+                        deviations in x and y distributions of original 
+                        point cloud to draw the points for 
+    @return             The updated point cloud
+    '''
     x_dist = [
         point[0]
         for point in points
@@ -169,236 +250,3 @@ def add_background_surface(points, num_stdev=1):
     ]
 
     return points + background_surface_points
-
-if __name__=="__main__":
-    camera_calib = "SamsungGalaxyA8"
-    
-    # first, grab camera and distortion matrices
-    k, d = io.load_calib_coefficients(camera_calib)
-
-    # generate image points
-    images = io.load_object_images("eraser")
-    # good_indices = [0, 2, 4, 5, 7, 10, 11]
-    # good_indices = [0, 2]
-    # images = [
-    #     images[i] 
-    #     for i in good_indices
-    # ]
-    titles = [
-        "Image %0d" %i
-        for i in range(len(images))
-    ]
-
-    images = [
-        cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        for image in images
-    ]
-    plt_utils.show_images(*images)
-
-    #########################
-    # undistort images
-    #########################
-    undistort_tuples = [
-        get_undistored_k_matrix(image, k, d)
-        for image in images
-    ]
-
-    k_mats, rois = zip(*undistort_tuples)
-
-    print(k_mats)
-
-    images = [
-        undistort(image, k, d, k_adj, roi)
-        for (image, k_adj, roi) in zip(images, k_mats, rois)
-    ]
-
-    plt_utils.show_images(*images)
-    #########################
-    # find image points
-    #########################
-
-    windowsize=10
-    sobel_size=3
-    harris_const=0.04
-    harris_threshold=0.1
-    r=40
-    p=0.5
-    d = 150
-    ret_tuples = [
-        get_ordered_image_points(image, windowsize=windowsize, sobel_size=sobel_size, k=harris_const, harris_threshold=harris_threshold, r=r, p=p, d=d)
-        for image in images
-    ]
-
-    is_valids, image_points, corners = zip(*ret_tuples)
-
-    image_points = [
-        points
-        for (points, is_valid) in zip(image_points, is_valids)
-        if is_valids
-    ]
-    corners = [
-        corner
-        for (corner, is_valid) in zip(corners, is_valids)
-        if is_valid
-    ]
-    
-    images = [
-        image
-        for (image, is_valid) in zip(images, is_valids)
-        if is_valid
-    ]
-
-    plt_utils.plot_image_points(images, image_points, titles=titles, sup_title="Image Chessboard Points")
-    plt_utils.plot_point_path(images, corners, image_points, titles=titles, sup_title="Corner Point Sequence")
-
-    #########################
-    # get extrinsic camera params
-    #########################
-    
-    length = 9
-    width = 6
-    square_size = 1.9
-    G_mats = [
-        get_camera_extrinsic_matrix_nls(points, k_mat, length=length, width=width, square_size=square_size)
-        for (points, k_mat) in zip(image_points, k_mats)
-    ]
-
-    # print(G_mats)
-
-    #########################
-    # get point groups from chessboard corner image points
-    #########################
-
-    feature_groups = [
-        [
-            SIFTFeature(j, image_points[j][i], np.zeros(128))
-            for j in range(len(image_points))
-        ]
-        for i in range(len(image_points[0]))
-    ]
-
-    # print(np.shape(feature_groups))
-
-    proj_mats = [
-        K @ G
-        for (K, G) in zip(k_mats, G_mats)
-    ]
-
-    reconstructed_points = reconstruct_3D_points(feature_groups, proj_mats)
-
-    #########################
-    # error analysis
-    #########################
-    true_points = get_world_points(length, width, square_size)
-
-    #convert from homogeneous coordinates
-    true_points = [
-        point[:3] / point[3]
-        for point in true_points
-    ]
-
-    abs_error = [
-        linalg.get_euclidean_distance(reco, point)
-        for (reco, point) in zip(reconstructed_points, true_points)
-    ]
-
-    MAE = np.mean(abs_error)
-
-    for (reco, point) in zip(reconstructed_points, true_points):
-        print(reco, point)
-
-    plt.figure()
-    plt.hist(abs_error, label="Mean Absolute Error = %.2f" % MAE)
-    plt.xlabel("Absolute Error")
-    plt.ylabel("Number of Occurences")
-    plt.title("Absolute Error of Reconstructed Chessboard Points")
-    plt.legend()
-
-    # # try again but remove error prone images
-    good_indices = [0, 2, 3, 6, 7, 9, 10, 11, 13, 14]
-
-    # all combinations of 2 images
-    combinator = combinations(good_indices, 2)
-    combination_list = list(combinator)
-
-    errors = []
-    for combination in combination_list:
-        reduced_feature_groups = [
-            [
-                feature
-                for feature in group
-                if feature.image_idx in combination
-            ]
-            for group in feature_groups
-        ]
-
-        print(len(reduced_feature_groups[0]))
-
-        reconstructed_points = reconstruct_3D_points(reduced_feature_groups, proj_mats)
-
-        abs_error = [
-            linalg.get_euclidean_distance(reco, point)
-            for (reco, point) in zip(reconstructed_points, true_points)
-        ]
-
-        errors += abs_error
-
-    MAE = np.mean(errors)
-    
-    plt.figure()
-    plt.hist(errors, label="Mean Absolute Error = %.3f" % MAE, bins=30)
-    plt.xlabel("Absolute Error (cm)")
-    plt.ylabel("Number of Occurences")
-    plt.title("Reconstruction Error for all Passable 2 Image Combinations")
-    plt.legend()
-
-
-    # feature_groups = [
-    #     [
-    #         feat
-    #     ]
-    # ]
-
-    # k_mats = [
-    #     k_mats[i]
-    #     for i in good_indices
-    # ]
-
-    # G_mats = [
-    #     G_mats[i]
-    #     for i in good_indices
-    # ]
-
-    # # print(np.shape(feature_groups))
-
-    # reconstructed_points = reconstruct_3D_points(feature_groups, proj_mats)
-
-    # #########################
-    # # error analysis
-    # #########################
-    # true_points = get_world_points(length, width, square_size)
-
-    # #convert from homogeneous coordinates
-    # true_points = [
-    #     point[:3] / point[3]
-    #     for point in true_points
-    # ]
-
-    # abs_error = [
-    #     linalg.get_euclidean_distance(reco, point)
-    #     for (reco, point) in zip(reconstructed_points, true_points)
-    # ]
-
-    # MAE = np.mean(abs_error)
-
-    # for (reco, point) in zip(reconstructed_points, true_points):
-    #     print(reco, point)
-
-    # plt.figure()
-    # plt.hist(abs_error, label="Mean Absolute Error = %.2f" % MAE)
-    # plt.xlabel("Absolute Error")
-    # plt.ylabel("Number of Occurences")
-    # plt.title("Absolute Error of Reconstructed Chessboard Points")
-    # plt.legend()
-
-    plt.show()
